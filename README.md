@@ -1,6 +1,6 @@
 # SPOCO: Sparse Object-level Supervision for Instance Segmentation with Pixel Embeddings
 
-![alt text](./img/Figure2.png)
+![alt text](./img/Figure2.svg)
 
 This repository provides a PyTorch implementation of our method from the [paper](https://arxiv.org/abs/2103.14572):
 
