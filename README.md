@@ -15,4 +15,15 @@ This repository provides a PyTorch implementation of our method from the [paper]
 }
 ```
 
- 
+## Training
+Set up conda environment:
+```bash
+conda env create -f environment.yaml
+```
+
+Activate the new environment:
+```bash
+conda activate spoco
+```
+
+## Prediction
