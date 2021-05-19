@@ -15,6 +15,9 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
          target (torch.Tensor): NxCxSpatial target tensor
          epsilon (float): prevents division by zero
          weight (torch.Tensor): Cx1 tensor of weight per channel/class
+
+    Returns:
+        Cx1 tensor, i.e. Dice score for each channel
     """
 
     # input and target shapes must match
@@ -34,8 +37,23 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     return 2 * (intersect / denominator.clamp(min=epsilon))
 
 
-def select_stable_anchor(embeddings, mean_anchor, target_mask, delta_var, norm='fro'):
-    indices = torch.nonzero(target_mask, as_tuple=True)
+def select_stable_anchor(embeddings, mean_embedding, object_mask, delta_var, norm='fro'):
+    """
+    Anchor sampling procedure. Given a binary mask of an object (`object_mask`) and a `mean_embedding` vector within
+    the mask, the function selects a pixel from the mask at random and returns its embedding only if it's closer than
+    `delta_var` from the `mean_embedding`.
+
+    Args:
+        embeddings (torch.Tensor): ExSpatial vector field of an image
+        mean_embedding (torch.Tensor): E-dimensional mean of embeddings lying within the `object_mask`
+        object_mask (torch.Tensor): binary image of a selected object
+        delta_var (float): contrastive loss, pull force margin
+        norm (str): vector norm used, default: Frobenius norm
+
+    Returns:
+        embedding of a selected pixel within the mask or the mean embedding if stable anchor could be found
+    """
+    indices = torch.nonzero(object_mask, as_tuple=True)
     # convert to numpy
     indices = [t.cpu().numpy() for t in indices]
 
@@ -46,7 +64,7 @@ def select_stable_anchor(embeddings, mean_anchor, target_mask, delta_var, norm='
         rs.shuffle(t)
 
     for ind in range(len(indices[0])):
-        if target_mask.dim() == 2:
+        if object_mask.dim() == 2:
             y, x = indices
             anchor_emb = embeddings[:, y[ind], x[ind]]
             anchor_emb = anchor_emb[..., None, None]
@@ -54,34 +72,11 @@ def select_stable_anchor(embeddings, mean_anchor, target_mask, delta_var, norm='
             z, y, x = indices
             anchor_emb = embeddings[:, z[ind], y[ind], x[ind]]
             anchor_emb = anchor_emb[..., None, None, None]
-        dist_to_mean = torch.norm(mean_anchor - anchor_emb, norm)
+        dist_to_mean = torch.norm(mean_embedding - anchor_emb, norm)
         if dist_to_mean < delta_var:
             return anchor_emb
-    # if stable anchor has not been found, return mean_anchor
-    return mean_anchor
-
-
-class _MaskingLossWrapper(nn.Module):
-    """
-    Loss wrapper which prevents the gradient of the loss to be computed where target is equal to `ignore_index`.
-    """
-
-    def __init__(self, loss, ignore_index):
-        super(_MaskingLossWrapper, self).__init__()
-        assert ignore_index is not None, 'ignore_index cannot be None'
-        self.loss = loss
-        self.ignore_index = ignore_index
-
-    def forward(self, input, target):
-        mask = target.clone().ne_(self.ignore_index)
-        mask.requires_grad = False
-
-        # mask out input/target so that the gradient is zero where on the mask
-        input = input * mask
-        target = target * mask
-
-        # forward masked input and target to the loss
-        return self.loss(input, target)
+    # if stable anchor has not been found, return mean_embedding
+    return mean_embedding
 
 
 class _AbstractDiceLoss(nn.Module):
@@ -148,9 +143,9 @@ class BCEDiceLoss(nn.Module):
 
 
 def flatten(tensor):
-    """Flattens a given tensor such that the channel axis is first.
-    The shapes are transformed as follows:
-       (N, C, D, H, W) -> (C, N * D * H * W)
+    """
+    Flattens a given tensor such that the channel axis is first.
+    The shapes are transformed as follows: (N, C, D, H, W) -> (C, N * D * H * W)
     """
     # number of channels
     C = tensor.size(1)
@@ -197,14 +192,10 @@ def expand_as_one_hot(input, C, ignore_index=None):
         return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
 
 
-def get_embedding_loss(args):
-    pass
-    # return loss
-
-
 ################################################# embedding losses ####################################################
 def check_consecutive(labels):
-    """ Check that the input labels are consecutive and start at zero.
+    """
+    Check that the input labels are consecutive and start at zero.
     """
     diff = labels[1:] - labels[:-1]
     return (labels[0] == 0) and (diff == 1).all()
@@ -212,7 +203,7 @@ def check_consecutive(labels):
 
 def compute_cluster_means(input_, target, spatial_ndim):
     """
-    Computes mean embeddings per instance, embeddings withing a given instance and the number of voxels per instance.
+    Computes mean embeddings per instance, embeddings within a given instance and the number of voxels per instance.
 
     C - number of instances
     E - embedding dimension
@@ -222,6 +213,8 @@ def compute_cluster_means(input_, target, spatial_ndim):
         input_: tensor of pixel embeddings, shape: ExSPATIAL
         target: one-hot encoded target instances, shape: CxSPATIAL
         spatial_ndim: rank of the spacial tensor
+    Returns:
+        tuple of tensors: (mean_embeddings, embeddings_per_instance, num_voxels_per_instance)
     """
     dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
 
@@ -295,6 +288,9 @@ class AbstractContrastiveLoss(nn.Module):
             C: number of instances (clusters)
             spatial_ndim: rank of the spacial tensor
             ignore_zero_label: if True ignores the cluster corresponding to the 0-label
+
+        Returns:
+            float: value of the variance term
         """
 
         dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
@@ -333,8 +329,10 @@ class AbstractContrastiveLoss(nn.Module):
         Args:
             cluster_means: mean embedding of each instance, tensor (CxExSPATIAL_SINGLETON)
             C: number of instances (clusters)
-            spatial_ndim: rank of the spacial tensor
             ignore_zero_label: if True ignores the cluster corresponding to the 0-label
+
+        Returns:
+            float: value of the distance term
         """
         if C == 1:
             # just one cluster in the batch, so distance term does not contribute to the loss
@@ -402,8 +400,22 @@ class AbstractContrastiveLoss(nn.Module):
         regularizer_term = torch.sum(norms) / C
         return regularizer_term
 
-    def _compute_background_push(self, cluster_means, embeddings_per_instance, target, num_voxels_per_instance,
-                                 C, spatial_ndim):
+    def _compute_unlabeled_push(self, cluster_means, embeddings_per_instance, target, num_voxels_per_instance,
+                                C, spatial_ndim):
+        """
+        Compute additional push-force that pushes each pixel in the unlabeled region (0-label) away from
+        a given cluster means
+        Args:
+            cluster_means: CxE tensor of mean embeddings
+            embeddings_per_instance: CxExSpatial tensor of embeddings per each instance
+            target: target label image
+            num_voxels_per_instance: C-dim tensor containing numbers of pixels/voxels for each object
+            C: number of objects/insances
+            spatial_ndim: rank of the target tensor
+
+        Returns:
+            float: value of the unlabeled push term
+        """
         dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
 
         # decrease number of instances `C` since we're ignoring 0-label
@@ -414,23 +426,23 @@ class AbstractContrastiveLoss(nn.Module):
 
         # skip embedding corresponding to the background pixels
         cluster_means = cluster_means[1:]
-        # expand background embeddings to match number of clusters
-        # notice that we're ignoring `cluster_0` which corresponds to the background
-        background_embeddings = embeddings_per_instance[:1].expand_as(embeddings_per_instance[1:])
-        # expand background mask as well
-        background_mask = target[:1].expand_as(target[1:])
-        # expand num of background pixels
-        num_background_voxels = num_voxels_per_instance[:1].expand_as(num_voxels_per_instance[1:])
+        # expand unlabeled embeddings to match number of clusters
+        # notice that we're ignoring `cluster_0` which corresponds to the unlabeled region
+        unlabeled_embeddings = embeddings_per_instance[:1].expand_as(embeddings_per_instance[1:])
+        # expand unlabeled mask as well
+        unlabeled_mask = target[:1].expand_as(target[1:])
+        # expand num of unlabeled pixels
+        num_unlabeled_voxels = num_voxels_per_instance[:1].expand_as(num_voxels_per_instance[1:])
 
-        # compute distances between cluster means and background embeddings; result:(Cx1xSPATIAL)
-        dist_to_mean = torch.norm(background_embeddings - cluster_means, self.norm, dim=1, keepdim=True)
-        # apply background mask and compute hinge
-        bg_dist_hinged = torch.clamp((self.delta_dist - dist_to_mean) * background_mask, min=0) ** 2
+        # compute distances between cluster means and unlabeled embeddings; result:(Cx1xSPATIAL)
+        dist_to_mean = torch.norm(unlabeled_embeddings - cluster_means, self.norm, dim=1, keepdim=True)
+        # apply unlabeled mask and compute hinge
+        unlabeled_dist_hinged = torch.clamp((self.delta_dist - dist_to_mean) * unlabeled_mask, min=0) ** 2
         # sum up hinged distances
-        dist_sum = torch.sum(bg_dist_hinged, dim=dim_arg, keepdim=True)
+        dist_sum = torch.sum(unlabeled_dist_hinged, dim=dim_arg, keepdim=True)
         # normalize by the number of background voxels and the number of distances
-        background_push = torch.sum(dist_sum / num_background_voxels) / C
-        return background_push
+        unlabeled_push = torch.sum(dist_sum / num_unlabeled_voxels) / C
+        return unlabeled_push
 
     def compute_instance_term(self, embeddings, cluster_means, target):
         """
@@ -440,6 +452,9 @@ class AbstractContrastiveLoss(nn.Module):
             embeddings (torch.tensor): pixel embeddings (ExSPATIAL)
             cluster_means (torch.tensor): mean embeddings per instance (CxExSINGLETON_SPATIAL)
             target (torch.tensor): ground truth instance segmentation (SPATIAL)
+
+        Returns:
+            float: value of the instance-based term
         """
         raise NotImplementedError
 
@@ -455,6 +470,7 @@ class AbstractContrastiveLoss(nn.Module):
 
         Returns:
             Combined loss defined as: alpha * variance_term + beta * distance_term + gamma * regularization_term
+                                        + instance_term_weight * instance_term + unlabeled_push_weight * unlabeled_push_term
         """
 
         n_batches = input_.shape[0]
@@ -504,9 +520,9 @@ class AbstractContrastiveLoss(nn.Module):
             # compute only ignore_zero_label is True, i.e. a given patch contains background label
             unlabeled_push_term = 0.
             if self.unlabeled_push and contains_bg:
-                unlabeled_push_term = self._compute_background_push(cluster_means, embeddings_per_instance,
-                                                                    single_target, num_voxels_per_instance,
-                                                                    C, spatial_dims)
+                unlabeled_push_term = self._compute_unlabeled_push(cluster_means, embeddings_per_instance,
+                                                                   single_target, num_voxels_per_instance,
+                                                                   C, spatial_dims)
 
             # compute the instance-based auxiliary loss
             instance_term = self.compute_instance_term(single_input, cluster_means, orig_target)
@@ -554,7 +570,8 @@ class AbstractContrastiveLoss(nn.Module):
 class ContrastiveLoss(AbstractContrastiveLoss):
     """
     Implementation of the standard contrastive loss defined in https://arxiv.org/pdf/1708.02551.pdf
-    'Semantic Instance Segmentation with a Discriminative Loss Function'
+    'Semantic Instance Segmentation with a Discriminative Loss Function', i.e. no instance-based loss term
+    and no unlabeled push term.
     """
 
     def __init__(self, delta_var, delta_dist, norm='fro', alpha=1., beta=1., gamma=0.001):
@@ -606,6 +623,12 @@ def segmentation_to_affinities(segmentation, offsets):
 
 
 class AffinitySideLoss(nn.Module):
+    """
+    Affinity-based side loss inspired by the work of K. Lee et al.
+    "Learning Dense Voxel Embeddings for 3D Neuron Reconstruction" (https://arxiv.org/pdf/1909.09872.pdf).
+
+    Implementation provided by Constantin Pape.
+    """
     eps = 1.e-6
 
     def __init__(self, delta_dist, offset_ranges, n_samples):
@@ -645,6 +668,11 @@ class AffinitySideLoss(nn.Module):
 
 
 class ExtendedContrastiveLoss(AbstractContrastiveLoss):
+    """
+    Contrastive loss extended with the instance-based loss term and the unlabeled push term (if training done in
+    semi-supervised mode).
+    """
+
     def __init__(self, delta_var, delta_dist, norm='fro', alpha=1., beta=1., gamma=0.001,
                  unlabeled_push_weight=0.0, instance_term_weight=1.0, aux_loss='dice', pmaps_threshold=0.5, **kwargs):
 
@@ -738,6 +766,11 @@ class ExtendedContrastiveLoss(AbstractContrastiveLoss):
 
 
 class EmbeddingConsistencyContrastiveLoss(ExtendedContrastiveLoss):
+    """
+    Complete loss used for SPOCO training. Essentially it extends the contrastive loss with the instance-based term,
+    unlabeled push term and embedding consistency term.
+    """
+
     def __init__(self, delta_var, delta_dist, norm='fro', alpha=1., beta=1., gamma=0.001,
                  unlabeled_push_weight=1.0, instance_term_weight=1.0, consistency_term_weight=1.0,
                  aux_loss='dice', pmaps_threshold=0.5, max_anchors=20, volume_threshold=0.05, **kwargs):
@@ -841,6 +874,26 @@ def create_loss(delta_var, delta_dist,
                 alpha, beta, gamma,
                 unlabeled_push_weight, instance_term_weight,
                 consistency_weight, kernel_threshold):
+    """
+    Creates an instance of the embedding loss based on the parameters provided.
+    If `unlabeled_push_weight` is set to zero ContrastiveLos or ExtendedContrastiveLoss (if `instance_term_weight`
+    is greater than 0) is returned, otherwise the EmbeddingConsistencyContrastiveLoss is returned.
+
+    Args:
+        delta_var: pull force hinge
+        delta_dist: push force hinge
+        alpha: pull force weight
+        beta: push force weight
+        gamma: regularizer term weight
+        unlabeled_push_weight: unlabeled push force weight
+        instance_term_weight: instance-based loss weight
+        consistency_weight: embedding consistency loss weight
+        kernel_threshold: threshold used for the differentiable instance selection
+
+    Returns:
+        nn.Module: an instance of the loss function
+
+    """
     assert delta_var > 0
     assert delta_dist > 0
 

@@ -5,6 +5,9 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
+from PIL import ImageFile
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from torch.utils.data import Dataset
 
 from spoco.transforms import RgbToLabel, Relabel, GaussianBlur, ImgNormalize, LabelToTensor
@@ -160,6 +163,7 @@ class CVPPP2017Dataset(Dataset):
             self.masks, _ = self._load_files(root_dir, 'label')
             # training with sparse object supervision
             if self.instance_ratio is not None and phase == 'train':
+                print(f'SPARSE TRAINING: Sampling {self.instance_ratio} of ground truth objects at random')
                 assert 0 < self.instance_ratio <= 1
                 rs = np.random.RandomState(random_seed)
                 self.masks = [cvppp_sample_instances(m, self.instance_ratio, rs) for m in self.masks]
