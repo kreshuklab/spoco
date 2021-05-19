@@ -1,91 +1,10 @@
 import os
-import shutil
 
 import torch
 import torch.nn as nn
 from tensorboardX import SummaryWriter
 
-from spoco.utils import EmbeddingsTensorboardFormatter, RunningAverage
-
-
-def save_checkpoint(state, is_best, checkpoint_dir):
-    """Saves model and training parameters at '{checkpoint_dir}/last_checkpoint.pytorch'.
-    If is_best==True saves '{checkpoint_dir}/best_checkpoint.pytorch' as well.
-
-    Args:
-        state (dict): contains model's state_dict, optimizer's state_dict, epoch
-            and best evaluation metric value so far
-        is_best (bool): if True state contains the best model seen so far
-        checkpoint_dir (string): directory where the checkpoint are to be saved
-    """
-
-    if not os.path.exists(checkpoint_dir):
-        print(f"Checkpoint directory does not exists. Creating {checkpoint_dir}")
-        os.mkdir(checkpoint_dir)
-
-    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
-    print(f"Saving last checkpoint to '{last_file_path}'")
-    torch.save(state, last_file_path)
-    if is_best:
-        best_file_path = os.path.join(checkpoint_dir, 'best_checkpoint.pytorch')
-        print(f"Saving best checkpoint to '{best_file_path}'")
-        shutil.copyfile(last_file_path, best_file_path)
-
-
-def load_checkpoint(checkpoint_path, model, optimizer=None,
-                    model_key='model_state_dict', optimizer_key='optimizer_state_dict'):
-    """Loads model and training parameters from a given checkpoint_path
-    If optimizer is provided, loads optimizer's state_dict of as well.
-
-    Args:
-        checkpoint_path (string): path to the checkpoint to be loaded
-        model (torch.nn.Module): model into which the parameters are to be copied
-        optimizer (torch.optim.Optimizer) optional: optimizer instance into
-            which the parameters are to be copied
-
-    Returns:
-        state
-    """
-    if not os.path.exists(checkpoint_path):
-        raise IOError(f"Checkpoint '{checkpoint_path}' does not exist")
-
-    state = torch.load(checkpoint_path, map_location='cpu')
-    model.load_state_dict(state[model_key])
-
-    if optimizer is not None:
-        optimizer.load_state_dict(state[optimizer_key])
-
-    return state
-
-
-def create_trainer(model, optimizer, lr_scheduler, loss_criterion, eval_criterion, device, train_loader, val_loader,
-                   args):
-    is3d = args.model_name == 'UNet3D'
-    tensorboard_formatter = EmbeddingsTensorboardFormatter(plot_variance=True, is3d=is3d)
-
-    if not args.gan:
-        print('Standard SPOCO training')
-        trainer = Trainer(
-            model=model,
-            optimizer=optimizer,
-            lr_scheduler=lr_scheduler,
-            loss_criterion=loss_criterion,
-            eval_criterion=eval_criterion,
-            device=device,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            checkpoint_dir=args.checkpoint_dir,
-            max_num_iterations=args.max_num_iterations,
-            validate_after_iters=args.validate_after_iters,
-            log_after_iters=args.log_after_iters,
-            tensorboard_formatter=tensorboard_formatter
-        )
-    else:
-        print('Training SPOCO in adversarial mode')
-        # TODO: implement
-        trainer = None
-
-    return trainer
+from spoco.utils import EmbeddingsTensorboardFormatter, RunningAverage, save_checkpoint
 
 
 class Trainer:
@@ -153,7 +72,7 @@ class Trainer:
             im_k = im_k.to(self.device)
             target = target.to(self.device)
 
-            # forward pass through MoCo
+            # forward pass through MoCoUNet
             emb_q, emb_k = self.model(im_q, im_k)
             emb_k = emb_k.detach()
             input = (im_q, im_k)
@@ -339,3 +258,33 @@ class Trainer:
             return input[0].size(0)
         else:
             return input.size(0)
+
+
+def create_trainer(model, optimizer, lr_scheduler, loss_criterion, eval_criterion, device, train_loader, val_loader,
+                   args):
+    is3d = args.model_name == 'UNet3D'
+    tensorboard_formatter = EmbeddingsTensorboardFormatter(plot_variance=True, is3d=is3d)
+
+    if not args.gan:
+        print('Standard SPOCO training')
+        trainer = Trainer(
+            model=model,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            loss_criterion=loss_criterion,
+            eval_criterion=eval_criterion,
+            device=device,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            checkpoint_dir=args.checkpoint_dir,
+            max_num_iterations=args.max_num_iterations,
+            validate_after_iters=args.validate_after_iters,
+            log_after_iters=args.log_after_iters,
+            tensorboard_formatter=tensorboard_formatter
+        )
+    else:
+        print('Training SPOCO in adversarial mode')
+        # TODO: implement
+        trainer = None
+
+    return trainer

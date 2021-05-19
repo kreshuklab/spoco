@@ -2,25 +2,23 @@ import argparse
 import random
 
 import torch
-import torch.nn as nn
 
 from spoco.datasets.utils import create_train_val_loaders
 from spoco.losses import create_loss
 from spoco.metrics import create_eval_metric
-from spoco.model import MoCoUNet, UNet2D, UNet3D, get_number_of_learnable_parameters
+from spoco.model import get_number_of_learnable_parameters, create_model
 from spoco.trainer import create_trainer
-from spoco.utils import create_optimizer, create_lr_scheduler
+from spoco.utils import create_optimizer, create_lr_scheduler, SUPPORTED_DATASETS
 
-SUPPORTED_DATASETS = ['cvppp', 'dsb', 'ovules', 'mitoem', 'stem']
-
-parser = argparse.ArgumentParser(description='SPOCO')
+parser = argparse.ArgumentParser(description='SPOCO train')
 parser.add_argument('--manual-seed', type=int, default=None, help="RNG seed for deterministic training")
 
 # dataset config
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')
-parser.add_argument('--instance-ratio', type=float, default=None, help='ratio of ground truth instances that should be taken for training')
+parser.add_argument('--instance-ratio', type=float, default=None,
+                    help='ratio of ground truth instances that should be taken for training')
 parser.add_argument('--batch-size', type=int, default=4)
 parser.add_argument('--num-workers', type=int, default=8)
 
@@ -83,32 +81,9 @@ def main():
         torch.backends.cudnn.deterministic = True
 
     # create model
-    assert args.model_name in ["UNet2D", "UNet3D"]
-    if args.model_name == "UNet2D":
-        model_class = UNet2D
-    else:
-        model_class = UNet3D
-    unet_q = model_class(
-        in_channels=args.model_in_channels,
-        out_channels=args.model_out_channels,
-        f_maps=args.model_feature_maps,
-        layer_order=args.model_layer_order
-    )
-    unet_k = model_class(
-        in_channels=args.model_in_channels,
-        out_channels=args.model_out_channels,
-        f_maps=args.model_feature_maps,
-        layer_order=args.model_layer_order
-    )
-    # train using two embedding networks
-    model = MoCoUNet(unet_q, unet_k, m=args.momentum)
-
-    # use DataParallel
-    device_str = "cuda:0" if torch.cuda.is_available() else 'cpu'
+    model = create_model(args)
+    device_str = "cuda" if torch.cuda.is_available() else 'cpu'
     device = torch.device(device_str)
-    if torch.cuda.device_count() > 1 and not device.type == 'cpu':
-        model = nn.DataParallel(model)
-        print(f'Using {torch.cuda.device_count()} GPUs for training')
     print(f"Sending the model to '{device}'")
     model = model.to(device)
     print(model)

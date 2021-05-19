@@ -1,5 +1,7 @@
 import io
 import math
+import os
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,6 +14,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 plt.ioff()
 plt.switch_backend('agg')
+
+SUPPORTED_DATASETS = ['cvppp', 'dsb', 'ovules', 'mitoem', 'stem']
 
 
 class GaussianKernel(nn.Module):
@@ -198,23 +202,6 @@ class DefaultTensorboardFormatter(_TensorboardFormatter):
         return np.nan_to_num((img - np.min(img)) / np.ptp(img))
 
 
-def pca_project(embeddings):
-    assert embeddings.ndim == 3
-    # reshape (C, H, W) -> (C, H * W) and transpose
-    flattened_embeddings = embeddings.reshape(embeddings.shape[0], -1).transpose()
-    # init PCA with 3 principal components: one for each RGB channel
-    pca = PCA(n_components=3)
-    # fit the model with embeddings and apply the dimensionality reduction
-    flattened_embeddings = pca.fit_transform(flattened_embeddings)
-    # reshape back to original
-    shape = list(embeddings.shape)
-    shape[0] = 3
-    img = flattened_embeddings.transpose().reshape(shape)
-    # normalize to [0, 255]
-    img = 255 * (img - np.min(img)) / np.ptp(img)
-    return img.astype('uint8')
-
-
 def _find_masks(batch, min_size=10):
     """Center the z-slice in the 'middle' of a given instance, given a batch of instances
 
@@ -309,3 +296,79 @@ class RunningAverage:
         self.count += n
         self.sum += value * n
         self.avg = self.sum / self.count
+
+
+def save_checkpoint(state, is_best, checkpoint_dir):
+    """Saves model and training parameters at '{checkpoint_dir}/last_checkpoint.pytorch'.
+    If is_best==True saves '{checkpoint_dir}/best_checkpoint.pytorch' as well.
+
+    Args:
+        state (dict): contains model's state_dict, optimizer's state_dict, epoch
+            and best evaluation metric value so far
+        is_best (bool): if True state contains the best model seen so far
+        checkpoint_dir (string): directory where the checkpoint are to be saved
+    """
+
+    if not os.path.exists(checkpoint_dir):
+        print(f"Checkpoint directory does not exists. Creating {checkpoint_dir}")
+        os.mkdir(checkpoint_dir)
+
+    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
+    print(f"Saving last checkpoint to '{last_file_path}'")
+    torch.save(state, last_file_path)
+    if is_best:
+        best_file_path = os.path.join(checkpoint_dir, 'best_checkpoint.pytorch')
+        print(f"Saving best checkpoint to '{best_file_path}'")
+        shutil.copyfile(last_file_path, best_file_path)
+
+
+def load_checkpoint(checkpoint_path, model, optimizer=None,
+                    model_key='model_state_dict', optimizer_key='optimizer_state_dict'):
+    """Loads model and training parameters from a given checkpoint_path
+    If optimizer is provided, loads optimizer's state_dict of as well.
+
+    Args:
+        checkpoint_path (string): path to the checkpoint to be loaded
+        model (torch.nn.Module): model into which the parameters are to be copied
+        optimizer (torch.optim.Optimizer) optional: optimizer instance into
+            which the parameters are to be copied
+
+    Returns:
+        state
+    """
+    if not os.path.exists(checkpoint_path):
+        raise IOError(f"Checkpoint '{checkpoint_path}' does not exist")
+
+    state = torch.load(checkpoint_path, map_location='cpu')
+    model.load_state_dict(state[model_key])
+
+    if optimizer is not None:
+        optimizer.load_state_dict(state[optimizer_key])
+
+    return state
+
+
+def pca_project(embeddings):
+    """
+    Project embeddings into 3-dim RGB space for visualization purposes
+
+    Args:
+        embeddings: ExSpatial embedding tensor
+
+    Returns:
+        RGB image
+    """
+    assert embeddings.ndim == 3
+    # reshape (C, H, W) -> (C, H * W) and transpose
+    flattened_embeddings = embeddings.reshape(embeddings.shape[0], -1).transpose()
+    # init PCA with 3 principal components: one for each RGB channel
+    pca = PCA(n_components=3)
+    # fit the model with embeddings and apply the dimensionality reduction
+    flattened_embeddings = pca.fit_transform(flattened_embeddings)
+    # reshape back to original
+    shape = list(embeddings.shape)
+    shape[0] = 3
+    img = flattened_embeddings.transpose().reshape(shape)
+    # normalize to [0, 255]
+    img = 255 * (img - np.min(img)) / np.ptp(img)
+    return img.astype('uint8')

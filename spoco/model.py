@@ -198,6 +198,42 @@ class MoCoUNet(nn.Module):
 
         return emb_q, emb_k
 
+
 def get_number_of_learnable_parameters(model):
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     return sum([np.prod(p.size()) for p in model_parameters])
+
+
+def create_model(args):
+    assert args.model_name in ["UNet2D", "UNet3D"]
+    if args.model_name == "UNet2D":
+        model_class = UNet2D
+    else:
+        model_class = UNet3D
+
+    unet_q = model_class(
+        in_channels=args.model_in_channels,
+        out_channels=args.model_out_channels,
+        f_maps=args.model_feature_maps,
+        layer_order=args.model_layer_order
+    )
+    unet_k = model_class(
+        in_channels=args.model_in_channels,
+        out_channels=args.model_out_channels,
+        f_maps=args.model_feature_maps,
+        layer_order=args.model_layer_order
+    )
+    # train using two embedding networks
+    if hasattr(args, 'momentum'):
+        momentum = args.momentum
+    else:
+        momentum = 0.999
+
+    model = MoCoUNet(unet_q, unet_k, m=momentum)
+
+    # use DataParallel
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+        print(f'Using {torch.cuda.device_count()} GPUs for training')
+
+    return model

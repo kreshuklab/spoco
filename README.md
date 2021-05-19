@@ -15,8 +15,8 @@ This repository provides a PyTorch implementation of our method from the [paper]
 }
 ```
 
-## Training
-Set up conda environment:
+## Installation
+Checkout the repo and set up conda environment:
 ```bash
 conda env create -f environment.yaml
 ```
@@ -26,4 +26,8 @@ Activate the new environment:
 conda activate spoco
 ```
 
+## Training
+
 ## Prediction
+
+## Clustering
