@@ -31,7 +31,7 @@ class AbstractUNet(nn.Module):
     """
 
     def __init__(self, in_channels, out_channels, basic_module, f_maps, layer_order='gcr',
-                 num_groups=8, conv_kernel_size=3, pool_kernel_size=2, conv_padding=1, is3d=True, **kwargs):
+                 num_groups=8, conv_kernel_size=3, pool_kernel_size=2, conv_padding=1, is3d=True):
         super(AbstractUNet, self).__init__()
 
         assert isinstance(f_maps, list) or isinstance(f_maps, tuple)
@@ -84,7 +84,7 @@ class UNet3D(AbstractUNet):
     Uses `DoubleConv` as a basic_module and nearest neighbor upsampling in the decoder
     """
 
-    def __init__(self, in_channels, out_channels, f_maps, layer_order='gcr', num_groups=8, conv_padding=1, **kwargs):
+    def __init__(self, in_channels, out_channels, f_maps, layer_order='gcr', num_groups=8, conv_padding=1):
         super(UNet3D, self).__init__(in_channels=in_channels,
                                      out_channels=out_channels,
                                      basic_module=DoubleConv,
@@ -92,8 +92,7 @@ class UNet3D(AbstractUNet):
                                      layer_order=layer_order,
                                      num_groups=num_groups,
                                      conv_padding=conv_padding,
-                                     is3d=True,
-                                     **kwargs)
+                                     is3d=True)
 
 
 class UNet2D(AbstractUNet):
@@ -102,7 +101,7 @@ class UNet2D(AbstractUNet):
     """
 
     def __init__(self, in_channels, out_channels, f_maps, layer_order='gcr',
-                 num_groups=8, conv_padding=1, **kwargs):
+                 num_groups=8, conv_padding=1):
         super(UNet2D, self).__init__(in_channels=in_channels,
                                      out_channels=out_channels,
                                      basic_module=DoubleConv,
@@ -110,14 +109,12 @@ class UNet2D(AbstractUNet):
                                      layer_order=layer_order,
                                      num_groups=num_groups,
                                      conv_padding=conv_padding,
-                                     is3d=False,
-                                     **kwargs)
+                                     is3d=False)
 
 
 class WGANDiscriminator(nn.Module):
-    def __init__(self, in_channels, layer_order, num_groups, f_maps, patch_shape,
-                 conv_kernel_size=3, pool_kernel_size=2, conv_padding=1, is3d=True,
-                 **kwargs):
+    def __init__(self, in_channels, layer_order, f_maps, patch_shape, num_groups=8,
+                 conv_kernel_size=3, pool_kernel_size=2, conv_padding=1, is3d=True):
         super(WGANDiscriminator, self).__init__()
 
         assert isinstance(f_maps, list) or isinstance(f_maps, tuple)

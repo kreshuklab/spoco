@@ -124,8 +124,26 @@ python spoco_train.py \
 TODO
 
 ### GAN Training
+Training the embeddings in adversarial setting using Wasserstein GAN, can be accomplished by passing additional parameters, i.e.:
+```bash
+python spoco_train.py \
+    --ds-name DS_NAME --ds-path DS_ROOT_DIR \
+    --batch-size 1  \
+    --model-name MODEL_NAME \
+    --model-layer-order gcr \
+    --model-feature-maps FEATURE_MAPS \ 
+    --learning-rate 0.0002 \
+    --loss-delta-var 0.5 \
+    --loss-delta-dist 2.0 \ 
+    --loss-instance-weight 1.0 \
+    --kernel-threshold 0.5 \
+    --checkpoint-dir CHECKPOINT_DIR \ 
+    --log-after-iters 500 --validate-after-iters 1000 --max-num-iterations 100000 \
+    --gan --gradient-penalty-weight 10 --bootstrap-embeddings 10000 --gan-loss-weight 0.1 --critic-iters 2
 
-TODO
+```
+
+`batch_size` of `1` is recommended due to the higher memory footprint.
 
 ## Prediction
 Give a model trained on the CVPPP dataset, run the prediction using the following command:

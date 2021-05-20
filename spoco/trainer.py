@@ -4,7 +4,9 @@ import torch
 import torch.nn as nn
 from tensorboardX import SummaryWriter
 
-from spoco.utils import EmbeddingsTensorboardFormatter, RunningAverage, save_checkpoint
+from spoco.model import WGANDiscriminator
+from spoco.utils import EmbeddingsTensorboardFormatter, RunningAverage, save_checkpoint, create_optimizer
+from spoco.wgantrainer import WGANTrainer
 
 
 class Trainer:
@@ -116,7 +118,6 @@ class Trainer:
                 # log stats, params and images
                 print(f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
                 self._log_stats('train', train_losses.avg, train_eval_scores.avg)
-                # self._log_params()
                 self._log_images(input, target, output, 'train_')
 
             if self.should_stop():
@@ -284,7 +285,45 @@ def create_trainer(model, optimizer, lr_scheduler, loss_criterion, eval_criterio
         )
     else:
         print('Training SPOCO in adversarial mode')
-        # TODO: implement
-        trainer = None
+        if args.ds_name == 'cvppp':
+            patch_shape = (448, 448)
+        elif args.ds_name == 'dsb':
+            patch_shape = (256, 256)
+
+        critic = WGANDiscriminator(
+            # critic takes a single channel input, i.e. the instance pmaps given by the differentiable instance extraction
+            in_channels=1,
+            f_maps=args.model_feature_maps,
+            # don't use normalization layers in the critic
+            layer_order='cl',
+            is3d=is3d,
+            patch_shape=patch_shape
+        )
+
+        critic = critic.to(device)
+
+        D_optimizer = create_optimizer(0.0001, critic, betas=(0.5, 0.9))
+        trainer = WGANTrainer(
+            G=model,
+            D=critic,
+            G_optimizer=optimizer,
+            D_optimizer=D_optimizer,
+            G_lr_scheduler=lr_scheduler,
+            G_loss_criterion=loss_criterion,
+            G_eval_criterion=eval_criterion,
+            device=device,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            checkpoint_dir=args.checkpoint_dir,
+            max_num_iterations=args.max_num_iterations,
+            gp_lambda=args.gradient_penalty_weight,
+            gan_loss_weight=args.gan_loss_weight,
+            critic_iters=args.critic_iters,
+            kernel_threshold=args.kernel_threshold,
+            validate_after_iters=args.validate_after_iters,
+            log_after_iters=args.log_after_iters,
+            bootstrap_G=args.bootstrap_embeddings,
+            tensorboard_formatter=tensorboard_formatter
+        )
 
     return trainer
