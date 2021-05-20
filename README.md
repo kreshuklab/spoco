@@ -123,7 +123,7 @@ python spoco_train.py \
 
 TODO
 
-### GAN Training
+### Adversarial Training
 Training the embeddings in adversarial setting using Wasserstein GAN, can be accomplished by passing additional parameters, i.e.:
 ```bash
 python spoco_train.py \
