@@ -119,6 +119,10 @@ python spoco_train.py \
         ...
 ```
 
+### 3D Training
+
+TODO
+
 ### GAN Training
 
 TODO
@@ -134,7 +138,11 @@ python spoco_predict.py \
     --model-feature-maps 16 32 64 128 256 512 \
     --output-dir OUTPUT_DIR
 ```
-Results will be saved in the given `OUTPUT_DIR` directory.
+Results will be saved in the given `OUTPUT_DIR` directory. For each test input image `plantXXX_rgb.png` the following
+3 output files will be saved in the `OUTPUT_DIR`:
+* `plantXXX_rgb_predictions.h5` - HDF5 file with datasets `/raw` (input image), `/embeddings1` (output from the `f` embedding network), `/embeddings2` (output from the `g` momentum contrast network)
+* `plantXXX_rgb_predictions_1.png` - output from the `f` embedding network PCA-projected into the RGB-space
+* `plantXXX_rgb_predictions_2.png` - output from the `g` momentum contrast network PCA-projected into the RGB-space
 
 Similarly, to predict on DSB run:
 ```bash
@@ -146,7 +154,17 @@ python spoco_predict.py \
     --model-feature-maps 16 32 64 128 256 512 \
     --output-dir OUTPUT_DIR
 ```
+Accordingly: 3 output files (`img.h5`, `img_1.png`, `img_2.png`) will be saved in the `OUTPUT_DIR` for a given input image `img.tif`.
 
 ## Clustering
+To produce the final segmentation one needs to cluster the embeddings with and algorithm of choice. Supported
+algoritms: mean-shift, HDBSCAN and Consistency Clustering (as described in the paper). E.g. to cluster CVPPP with HDBSCAN, run:
+```bash
+python cluster_predictions.py --ds-name cvppp \
+    --emb-dir PREDICTION_DIR \
+    --output-dataset hdbscan_seg
+    --clustering hdbscan --delta-var 0.5 --min-size 200 --remove-largest
+```
 
-TODO
+Where `PREDICTION_DIR` is the directory where h5 files containing network predictions are stored. Resulting segmentation
+will be saved as a separate dataset (named `hdbscan_seg` in this example) inside each of the H5 prediction files.
