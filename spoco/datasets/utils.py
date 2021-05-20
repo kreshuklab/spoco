@@ -4,12 +4,16 @@ import torch
 from torch.utils.data import DataLoader
 
 from spoco.datasets.cvppp import CVPPP2017Dataset
+from spoco.datasets.dsb import DSB2018Dataset
 
 
 def create_train_val_loaders(ds_name, ds_path, batch_size, num_workers, instance_ratio, random_seed):
     if ds_name == 'cvppp':
         train_datasets = CVPPP2017Dataset(ds_path, 'train', instance_ratio=instance_ratio, random_seed=random_seed)
         val_datasets = CVPPP2017Dataset(ds_path, 'val')
+    elif ds_name == 'dsb':
+        train_datasets = DSB2018Dataset(ds_path, 'train', instance_ratio=instance_ratio, random_seed=random_seed)
+        val_datasets = DSB2018Dataset(ds_path, 'val')
 
     # TODO: add remaining dataset
 
@@ -31,6 +35,8 @@ def create_train_val_loaders(ds_name, ds_path, batch_size, num_workers, instance
 def create_test_loader(ds_name, ds_path, batch_size, num_workers):
     if ds_name == 'cvppp':
         test_dataset = CVPPP2017Dataset(ds_path, 'test')
+    elif ds_name == 'dsb':
+        test_dataset = DSB2018Dataset(ds_path, 'test')
 
     # TODO: add remaining dataset
 

@@ -102,7 +102,7 @@ EXTENDED_TRANSFORM = transforms.Compose(
     ]
 )
 
-MOCO_TEST = transforms.Compose(
+SPOCO_TEST = transforms.Compose(
     [
         transforms.Resize(size=(448, 448)),
         transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
@@ -114,7 +114,7 @@ MOCO_TEST = transforms.Compose(
 
 
 class CVPPP2017Dataset(Dataset):
-    def __init__(self, root_dir, phase, instance_ratio=None, random_seed=None, raw_transform=BASE_TRANSFORM):
+    def __init__(self, root_dir, phase, instance_ratio=None, random_seed=None):
         assert os.path.isdir(root_dir), f'{root_dir} is not a directory'
         assert phase in ['train', 'val', 'test']
 
@@ -130,7 +130,7 @@ class CVPPP2017Dataset(Dataset):
         self.file_path = root_dir
         self.instance_ratio = instance_ratio
 
-        self.raw_transform = raw_transform
+        self.raw_transform = BASE_TRANSFORM
 
         self.train_label_transform = transforms.Compose(
             [
@@ -196,15 +196,13 @@ class CVPPP2017Dataset(Dataset):
             return img1, img2, mask
         elif self.phase == 'val':
             mask = self.masks[idx]
-            seed = np.random.randint(np.iinfo('int32').max)
-            random.seed(seed)
-            img = self.test_transform(img)
-            random.seed(seed)
             mask = self.val_label_transform(mask)
-            return img, img, mask
+            img1 = self.test_transform(img)
+            img2 = SPOCO_TEST(img)
+            return img1, img2, mask
         else:
             img1 = self.test_transform(img)
-            img2 = MOCO_TEST(img)
+            img2 = SPOCO_TEST(img)
             return img1, img2, self.paths[idx]
 
     def __len__(self):

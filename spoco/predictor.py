@@ -1,16 +1,17 @@
 import os
 
 import h5py
+import imageio
 import torch
 import numpy as np
 import torchvision
 from PIL import Image
 
-from spoco.transforms import RgbToLabel, Relabel
+from spoco.transforms import RgbToLabel, Relabel, CropToFixed
 from spoco.utils import pca_project
 
 
-class Abstract2DEmbeddingPredictor:
+class Abstract2DEmbeddingsPredictor:
     def __init__(self, model, test_loader, output_dir, device):
         self.model = model
         self.test_loader = test_loader
@@ -57,7 +58,7 @@ class Abstract2DEmbeddingPredictor:
         raise NotImplementedError
 
 
-class CVPPPEmbeddingsPredictor(Abstract2DEmbeddingPredictor):
+class CVPPPEmbeddingsPredictor(Abstract2DEmbeddingsPredictor):
     def __init__(self, model, test_loader, output_dir, device):
         super().__init__(model, test_loader, output_dir, device)
 
@@ -79,6 +80,22 @@ class CVPPPEmbeddingsPredictor(Abstract2DEmbeddingPredictor):
         return img
 
 
+class DSBEmbeddingsPredictor(Abstract2DEmbeddingsPredictor):
+    def __init__(self, model, test_loader, output_dir, device):
+        super().__init__(model, test_loader, output_dir, device)
+
+    def load_gt_label(self, img_path):
+        base, filename = os.path.split(img_path)
+        mask_dir = os.path.join(os.path.split(base)[0], 'masks')
+        mask_file = os.path.join(mask_dir, filename)
+        gt_label = np.asarray(imageio.imread(mask_file))
+        crop = CropToFixed(np.random.RandomState(47), size=(256, 256), centered=True)
+        gt_label = crop(gt_label)
+        return gt_label
+
+
 def create_predictor(model, test_loader, output_dir, device, args):
     if args.ds_name == 'cvppp':
         return CVPPPEmbeddingsPredictor(model, test_loader, output_dir, device)
+    elif args.ds_name == 'dsb':
+        return DSBEmbeddingsPredictor(model, test_loader, output_dir, device)
