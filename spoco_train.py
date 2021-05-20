@@ -63,9 +63,10 @@ parser.add_argument('--max-num-iterations', type=int, required=True, help="Maxim
 
 # WGAN training
 parser.add_argument('--gan', action='store_true', help='Train in GAN setting')
+parser.add_argument('--gradient-penalty-weight', type=float, default=10.0, help='WGAN gradient penalty weight')
 parser.add_argument('--bootstrap-embeddings', type=int, default=None,
                     help='Number of iters to bootstrap embedding model (Generator)')
-parser.add_argument('--gan_loss_weight', type=float, default=0.1, help='Weighting applied to the WGAN loss term')
+parser.add_argument('--gan-loss-weight', type=float, default=0.1, help='Weighting applied to the WGAN loss term')
 parser.add_argument('--critic-iters', type=int, default=2, help='Number of critic iters per generator iters')
 
 
