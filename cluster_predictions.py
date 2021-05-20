@@ -6,7 +6,7 @@ from concurrent import futures
 import h5py
 import numpy as np
 
-from spoco.clustering.utils import cluster_ms, cluster_hdbscan, cluster_consistency
+from spoco.cluster import cluster_ms, cluster_hdbscan, cluster_consistency
 from spoco.utils import SUPPORTED_DATASETS
 
 parser = argparse.ArgumentParser(description='Embedding clustering')
