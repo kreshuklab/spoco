@@ -372,3 +372,20 @@ def pca_project(embeddings):
     # normalize to [0, 255]
     img = 255 * (img - np.min(img)) / np.ptp(img)
     return img.astype('uint8')
+
+
+def dsb_train_val_test_split(root_dir, random_state, train_ratio=0.8):
+    images = os.listdir(root_dir)
+    # shuffle images
+    random_state.shuffle(images)
+    # get train, val, test counts
+    img_count = len(images)
+    train_count = int(img_count * train_ratio)
+    val_count = (img_count - train_count) // 2
+
+    train_images = images[:train_count]
+    val_images = images[train_count:train_count + val_count]
+    test_images = images[train_count + val_count:]
+
+    assert len(images) == len(train_images) + len(val_images) + len(test_images)
+    return train_images, val_images, test_images
