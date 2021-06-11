@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn as nn
+from torch_scatter import scatter_mean
 
 from spoco.utils import shift_tensor, GaussianKernel
 
@@ -193,54 +194,21 @@ def expand_as_one_hot(input, C, ignore_index=None):
 
 
 ################################################# embedding losses ####################################################
-def check_consecutive(labels):
-    """
-    Check that the input labels are consecutive and start at zero.
-    """
-    diff = labels[1:] - labels[:-1]
-    return (labels[0] == 0) and (diff == 1).all()
 
-
-def compute_cluster_means(input_, target, spatial_ndim):
+def compute_cluster_means(embeddings, target, n_instances):
     """
-    Computes mean embeddings per instance, embeddings within a given instance and the number of voxels per instance.
-
-    C - number of instances
+    Computes mean embeddings per instance.
     E - embedding dimension
-    SPATIAL - volume shape, i.e. DxHxW for 3D/ HxW for 2D
 
     Args:
-        input_: tensor of pixel embeddings, shape: ExSPATIAL
-        target: one-hot encoded target instances, shape: CxSPATIAL
-        spatial_ndim: rank of the spacial tensor
-    Returns:
-        tuple of tensors: (mean_embeddings, embeddings_per_instance, num_voxels_per_instance)
+        embeddings: tensor of pixel embeddings, shape: ExSPATIAL
+        target: one-hot encoded target instances, shape: SPATIAL
+        n_instances: number of instances
     """
-    dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
-
-    embedding_dim = input_.size()[0]
-
-    # get number of voxels in each cluster output: Cx1x1(SPATIAL)
-    num_voxels_per_instance = torch.sum(target, dim=dim_arg, keepdim=True)
-
-    # expand target: Cx1xSPATIAL -> CxExSPATIAL
-    shape = list(target.size())
-    shape[1] = embedding_dim
-    target = target.expand(shape)
-
-    # expand input_: ExSPATIAL -> 1xExSPATIAL
-    input_ = input_.unsqueeze(0)
-
-    # sum embeddings in each instance (multiply first via broadcasting); embeddings_per_instance shape CxExSPATIAL
-    embeddings_per_instance = input_ * target
-    # num's shape: CxEx1(SPATIAL)
-    num = torch.sum(embeddings_per_instance, dim=dim_arg, keepdim=True)
-
-    # compute mean embeddings per instance CxEx1(SPATIAL)
-    mean_embeddings = num / num_voxels_per_instance
-
-    # return mean embeddings and additional tensors needed for further computations
-    return mean_embeddings, embeddings_per_instance, num_voxels_per_instance
+    embeddings = embeddings.flatten(1)
+    target = target.flatten()
+    mean_embeddings = scatter_mean(embeddings, target, dim_size=n_instances)
+    return mean_embeddings.transpose(1, 0)
 
 
 class AbstractContrastiveLoss(nn.Module):
@@ -269,80 +237,106 @@ class AbstractContrastiveLoss(nn.Module):
                                    f"\nunlabeled_push_weight: {self.unlabeled_push_weight}" \
                                    f"\ninstance_term_weight: {self.instance_term_weight}"
 
-    def _compute_variance_term(self, cluster_means, embeddings_per_instance, target, num_voxels_per_instance, C,
-                               spatial_ndim, ignore_zero_label):
+    def _compute_variance_term(self, cluster_means, embeddings, target, instance_counts, ignore_zero_label):
         """
         Computes the variance term, i.e. intra-cluster pull force that draws embeddings towards the mean embedding
 
         C - number of clusters (instances)
         E - embedding dimension
         SPATIAL - volume shape, i.e. DxHxW for 3D/ HxW for 2D
-        SPATIAL_SINGLETON - singleton dim with the rank of the volume, i.e. (1,1,1) for 3D, (1,1) for 2D
 
         Args:
-            cluster_means: mean embedding of each instance, tensor (CxExSPATIAL_SINGLETON)
-            embeddings_per_instance: embeddings vectors per instance, tensor (CxExSPATIAL); for a given instance `k`
-                embeddings_per_instance[k, ...] contains 0 outside of the instance mask target[k, ...]
-            target: instance mask, tensor (CxSPATIAL); each label is represented as one-hot vector
-            num_voxels_per_instance: number of voxels per instance Cx1x1(SPATIAL)
-            C: number of instances (clusters)
-            spatial_ndim: rank of the spacial tensor
+            cluster_means: mean embedding of each instance, tensor (CxE)
+            embeddings: embeddings vectors per instance, tensor (ExSPATIAL)
+            target: label tensor (1xSPATIAL); each label is represented as one-hot vector
+            instance_counts: number of voxels per instance
             ignore_zero_label: if True ignores the cluster corresponding to the 0-label
-
-        Returns:
-            float: value of the variance term
         """
 
-        dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
+        assert target.dim() in (2, 3)
+        n_instances = cluster_means.shape[0]
 
-        # compute the distance to cluster means, (norm across embedding dimension); result:(Cx1xSPATIAL)
-        dist_to_mean = torch.norm(embeddings_per_instance - cluster_means, self.norm, dim=1, keepdim=True)
+        # compute the spatial mean and instance fields by scattering with the
+        # target tensor
+        cluster_means_spatial = cluster_means[target]
+        instance_sizes_spatial = instance_counts[target]
 
-        # get distances to mean embedding per instance (apply instance mask)
-        dist_to_mean = dist_to_mean * target
+        # permute the embedding dimension to axis 0
+        if target.dim() == 2:
+            cluster_means_spatial = cluster_means_spatial.permute(2, 0, 1)
+        else:
+            cluster_means_spatial = cluster_means_spatial.permute(3, 0, 1, 2)
+
+        # compute the distance to cluster means
+        dist_to_mean = torch.norm(embeddings - cluster_means_spatial, self.norm, dim=0)
 
         if ignore_zero_label:
             # zero out distances corresponding to 0-label cluster, so that it does not contribute to the loss
             dist_mask = torch.ones_like(dist_to_mean)
-            dist_mask[0] = 0
+            dist_mask[target == 0] = 0
             dist_to_mean = dist_to_mean * dist_mask
             # decrease number of instances
-            C -= 1
+            n_instances -= 1
             # if there is only 0-label in the target return 0
-            if C == 0:
+            if n_instances == 0:
                 return 0.
 
         # zero out distances less than delta_var (hinge)
         hinge_dist = torch.clamp(dist_to_mean - self.delta_var, min=0) ** 2
-        # sum up hinged distances
-        dist_sum = torch.sum(hinge_dist, dim=dim_arg, keepdim=True)
 
-        # normalize the variance term
-        variance_term = torch.sum(dist_sum / num_voxels_per_instance) / C
+        # normalize the variance by instance sizes and number of instances and sum it up
+        variance_term = torch.sum(hinge_dist / instance_sizes_spatial) / n_instances
         return variance_term
 
-    def _compute_distance_term(self, cluster_means, C, ignore_zero_label):
+    def _compute_unlabeled_push(self, cluster_means, embeddings, target):
+        assert target.dim() in (2, 3)
+        n_instances = cluster_means.shape[0]
+
+        # permute embedding dimension at the end
+        if target.dim() == 2:
+            embeddings = embeddings.permute(1, 2, 0)
+        else:
+            embeddings = embeddings.permute(1, 2, 3, 0)
+
+        # decrease number of instances `C` since we're ignoring 0-label
+        n_instances -= 1
+        # if there is only 0-label in the target return 0
+        if n_instances == 0:
+            return 0.
+
+        background_mask = target == 0
+        n_background = background_mask.sum()
+        background_push = 0.
+        # skip embedding corresponding to the background pixels
+        for cluster_mean in cluster_means[1:]:
+            # compute distances between embeddings and a given cluster_mean
+            dist_to_mean = torch.norm(embeddings - cluster_mean, self.norm, dim=-1)
+            # apply background mask and compute hinge
+            dist_hinged = torch.clamp((self.delta_dist - dist_to_mean) * background_mask, min=0) ** 2
+            background_push += torch.sum(dist_hinged) / n_background
+
+        # normalize by the number of instances
+        return background_push / n_instances
+
+    def _compute_distance_term(self, cluster_means, ignore_zero_label):
         """
         Compute the distance term, i.e an inter-cluster push-force that pushes clusters away from each other, increasing
         the distance between cluster centers
 
         Args:
-            cluster_means: mean embedding of each instance, tensor (CxExSPATIAL_SINGLETON)
-            C: number of instances (clusters)
+            cluster_means: mean embedding of each instance, tensor (CxE)
             ignore_zero_label: if True ignores the cluster corresponding to the 0-label
-
-        Returns:
-            float: value of the distance term
         """
+        C = cluster_means.size(0)
         if C == 1:
             # just one cluster in the batch, so distance term does not contribute to the loss
             return 0.
 
         # expand cluster_means tensor in order to compute the pair-wise distance between cluster means
         # CxE -> CxCxE
-        cluster_means = cluster_means.unsqueeze(1)
+        cluster_means = cluster_means.unsqueeze(0)
         shape = list(cluster_means.size())
-        shape[1] = C
+        shape[0] = C
 
         # cm_matrix1 is CxCxE
         cm_matrix1 = cluster_means.expand(shape)
@@ -384,65 +378,15 @@ class AbstractContrastiveLoss(nn.Module):
         distance_term = dist_sum / (C * (C - 1))
         return distance_term
 
-    def _compute_regularizer_term(self, cluster_means, C, ignore_zero_label):
+    def _compute_regularizer_term(self, cluster_means):
         """
         Computes the regularizer term, i.e. a small pull-force that draws all clusters towards origin to keep
         the network activations bounded
         """
-        if ignore_zero_label:
-            mask = torch.ones_like(cluster_means)
-            mask[0] = 0
-            cluster_means = cluster_means * mask
         # compute the norm of the mean embeddings
         norms = torch.norm(cluster_means, p=self.norm, dim=1)
-        assert norms.size()[0] == C
         # return the average norm per batch
-        regularizer_term = torch.sum(norms) / C
-        return regularizer_term
-
-    def _compute_unlabeled_push(self, cluster_means, embeddings_per_instance, target, num_voxels_per_instance,
-                                C, spatial_ndim):
-        """
-        Compute additional push-force that pushes each pixel in the unlabeled region (0-label) away from
-        a given cluster means
-        Args:
-            cluster_means: CxE tensor of mean embeddings
-            embeddings_per_instance: CxExSpatial tensor of embeddings per each instance
-            target: target label image
-            num_voxels_per_instance: C-dim tensor containing numbers of pixels/voxels for each object
-            C: number of objects/insances
-            spatial_ndim: rank of the target tensor
-
-        Returns:
-            float: value of the unlabeled push term
-        """
-        dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
-
-        # decrease number of instances `C` since we're ignoring 0-label
-        C -= 1
-        # if there is only 0-label in the target return 0
-        if C == 0:
-            return 0.
-
-        # skip embedding corresponding to the background pixels
-        cluster_means = cluster_means[1:]
-        # expand unlabeled embeddings to match number of clusters
-        # notice that we're ignoring `cluster_0` which corresponds to the unlabeled region
-        unlabeled_embeddings = embeddings_per_instance[:1].expand_as(embeddings_per_instance[1:])
-        # expand unlabeled mask as well
-        unlabeled_mask = target[:1].expand_as(target[1:])
-        # expand num of unlabeled pixels
-        num_unlabeled_voxels = num_voxels_per_instance[:1].expand_as(num_voxels_per_instance[1:])
-
-        # compute distances between cluster means and unlabeled embeddings; result:(Cx1xSPATIAL)
-        dist_to_mean = torch.norm(unlabeled_embeddings - cluster_means, self.norm, dim=1, keepdim=True)
-        # apply unlabeled mask and compute hinge
-        unlabeled_dist_hinged = torch.clamp((self.delta_dist - dist_to_mean) * unlabeled_mask, min=0) ** 2
-        # sum up hinged distances
-        dist_sum = torch.sum(unlabeled_dist_hinged, dim=dim_arg, keepdim=True)
-        # normalize by the number of background voxels and the number of distances
-        unlabeled_push = torch.sum(dist_sum / num_unlabeled_voxels) / C
-        return unlabeled_push
+        return torch.sum(norms) / cluster_means.size(0)
 
     def compute_instance_term(self, embeddings, cluster_means, target):
         """
@@ -476,68 +420,42 @@ class AbstractContrastiveLoss(nn.Module):
         n_batches = input_.shape[0]
         # compute the loss per each instance in the batch separately
         # and sum it up in the per_instance variable
-        per_instance_loss = 0.
+        loss = 0.
         for single_input, single_target in zip(input_, target):
             contains_bg = 0 in single_target
             if self.unlabeled_push and contains_bg:
                 ignore_zero_label = True
 
-            # save original target tensor
-            orig_target = single_target
-
             # get number of instances in the batch instance
-            instances = torch.unique(single_target)
-            assert check_consecutive(instances)
+            instance_ids, instance_counts = torch.unique(single_target, return_counts=True)
+
             # get the number of instances
-            C = instances.size()[0]
+            C = instance_ids.size(0)
 
-            # SPATIAL = D X H X W in 3d case, H X W in 2d case
-            # expand each label as a one-hot vector: SPATIAL -> C x SPATIAL
-            # `expand_as_one_hot` requires batch dimension; later so we need to squeeze the result
-            single_target = expand_as_one_hot(single_target.unsqueeze(0), C).squeeze(0)
-
-            # compare shapes of input and output; single_input is ExSPATIAL, single_target is CxSPATIAL
-            assert single_input.dim() in (3, 4)
             # compare spatial dimensions
-            assert single_input.size()[1:] == single_target.size()[1:]
-            spatial_dims = single_input.dim() - 1
+            assert single_input.size()[1:] == single_target.size()
 
-            # expand target: CxSPATIAL -> Cx1xSPATIAL for further computation
-            single_target = single_target.unsqueeze(1)
-            # compute mean embeddings, assign embeddings to instances and get the number of voxels per instance
-            cluster_means, embeddings_per_instance, num_voxels_per_instance = compute_cluster_means(single_input,
-                                                                                                    single_target,
-                                                                                                    spatial_dims)
-            # use cluster means as the pull force centers
-            cluster_attractors = cluster_means
+            # compute mean embeddings (output is of shape CxE)
+            cluster_means = compute_cluster_means(single_input, single_target, C)
 
             # compute variance term, i.e. pull force
-            variance_term = self._compute_variance_term(cluster_attractors, embeddings_per_instance,
-                                                        single_target, num_voxels_per_instance,
-                                                        C, spatial_dims, ignore_zero_label)
+            variance_term = self._compute_variance_term(cluster_means, single_input, single_target, instance_counts,
+                                                        ignore_zero_label)
 
-            # compute background push force, i.e. push force between the mean cluster embeddings and embeddings of background pixels
+            # compute unlabeled push force, i.e. push force between the mean cluster embeddings and embeddings of background pixels
             # compute only ignore_zero_label is True, i.e. a given patch contains background label
             unlabeled_push_term = 0.
             if self.unlabeled_push and contains_bg:
-                unlabeled_push_term = self._compute_unlabeled_push(cluster_means, embeddings_per_instance,
-                                                                   single_target, num_voxels_per_instance,
-                                                                   C, spatial_dims)
+                unlabeled_push_term = self._compute_unlabeled_push(cluster_means, single_input, single_target)
 
             # compute the instance-based auxiliary loss
-            instance_term = self.compute_instance_term(single_input, cluster_means, orig_target)
-
-            # squeeze spatial dims
-            for _ in range(spatial_dims):
-                cluster_means = cluster_means.squeeze(-1)
+            instance_term = self.compute_instance_term(single_input, cluster_means, single_target)
 
             # compute distance term, i.e. push force
-            distance_term = self._compute_distance_term(cluster_means, C, ignore_zero_label)
+            distance_term = self._compute_distance_term(cluster_means, ignore_zero_label)
 
             # compute regularization term
-            # consider ignoring 0-label only for sparse object supervision, in all other cases
-            # we do not want to ignore 0-label in the regularizer, since we want the activations of 0-label to be bounded
-            regularization_term = self._compute_regularizer_term(cluster_means, C, False)
+            regularization_term = self._compute_regularizer_term(cluster_means)
 
             # compute total loss and sum it up
             loss = self.alpha * variance_term + \
@@ -546,25 +464,10 @@ class AbstractContrastiveLoss(nn.Module):
                    self.instance_term_weight * instance_term + \
                    self.unlabeled_push_weight * unlabeled_push_term
 
-            per_instance_loss += loss
+            loss += loss
 
         # reduce across the batch dimension
-        return per_instance_loss.div(n_batches)
-
-    def _should_ignore(self, target):
-        # set default values
-        ignore_zero_label = False
-        single_target = target
-
-        if self.ignore_label is not None:
-            assert target.dim() == 4, "Expects target to be 2xDxHxW when ignore_label is set"
-            # get relabeled target
-            single_target = target[0]
-            # get original target and ignore 0-label only if 0-label was present in the original target
-            original = target[1]
-            ignore_zero_label = self.ignore_label in original
-
-        return ignore_zero_label, single_target
+        return loss.div(n_batches)
 
 
 class ContrastiveLoss(AbstractContrastiveLoss):
@@ -715,12 +618,18 @@ class ExtendedContrastiveLoss(AbstractContrastiveLoss):
         inst_pmaps = []
         inst_masks = []
 
+        # permute embedding dimension at the end
+        if target.dim() == 2:
+            embeddings = embeddings.permute(1, 2, 0)
+        else:
+            embeddings = embeddings.permute(1, 2, 3, 0)
+
         for i, anchor_emb in enumerate(anchors):
             if i == 0:
                 # ignore 0-label
                 continue
             # compute distance map; embeddings is ExSPATIAL, cluster_mean is ExSINGLETON_SPATIAL, so we can just broadcast
-            distance_map = torch.norm(embeddings - anchor_emb, self.norm, dim=0)
+            distance_map = torch.norm(embeddings - anchor_emb, self.norm, dim=-1)
             # convert distance map to instance pmaps and save
             inst_pmaps.append(self.dist_to_mask(distance_map).unsqueeze(0))
             # create real mask and save
@@ -790,12 +699,9 @@ class EmbeddingConsistencyContrastiveLoss(ExtendedContrastiveLoss):
     def __str__(self):
         return super().__str__() + f"\nconsistency_term_weight: {self.consistency_term_weight}"
 
-    def _inst_pmap(self, emb, anchor, mask):
+    def _inst_pmap(self, emb, anchor):
         # compute distance map
-        distance_map = torch.norm(emb - anchor, self.norm, dim=0)
-        # compute hard mask, i.e. delta_var-neighborhood and zero-out in the mask
-        inst_mask = distance_map < self.delta_var
-        mask[inst_mask] = 0
+        distance_map = torch.norm(emb - anchor, self.norm, dim=-1)
         # convert distance map to instance pmaps and return
         return self.dist_to_mask(distance_map)
 
@@ -827,13 +733,13 @@ class EmbeddingConsistencyContrastiveLoss(ExtendedContrastiveLoss):
         if mask.dim() == 2:
             y, x = indices
             anchor = emb[:, y[ind], x[ind]]
-            anchor = anchor[:, None, None]
+            emb = emb.permute(1, 2, 0)
         else:
             z, y, x = indices
             anchor = emb[:, z[ind], y[ind], x[ind]]
-            anchor = anchor[:, None, None, None]
+            emb = emb.permute(1, 2, 3, 0)
 
-        return self._inst_pmap(emb, anchor, mask)
+        return self._inst_pmap(emb, anchor)
 
     def forward(self, input, target):
         assert len(input) == 2
