@@ -26,6 +26,8 @@ Activate the new environment:
 conda activate spoco
 ```
 
+Install [pytorch_scatter](https://github.com/rusty1s/pytorch_scatter).
+
 ## Training
 This implementation uses `DataParallel` training/prediction. In order to restrict the number of GPUs used for training
 use `CUDA_VISIBLE_DEVICES`, e.g. `CUDA_VISIBLE_DEVICES=0 python spoco_train.py ...` will execute training on `GPU:0`.

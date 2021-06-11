@@ -460,6 +460,12 @@ class TargetBasedMaskExtractor(AbstractMaskExtractor):
         assert tar is not None
 
         anchor_embeddings = self.anchor_embeddings_extractor(emb, tar)
+        spatial_dim = emb.dim() - 1
+
+        if spatial_dim == 2:
+            emb = emb.permute(1, 2, 0)
+        else:
+            emb = emb.permute(1, 2, 3, 0)
 
         results = []
         for i, anchor_emb in enumerate(anchor_embeddings):
@@ -468,7 +474,7 @@ class TargetBasedMaskExtractor(AbstractMaskExtractor):
                 continue
 
             # compute distance map; embeddings is ExSPATIAL, anchor_embeddings is ExSINGLETON_SPATIAL, so we can just broadcast
-            dist_to_mean = torch.norm(emb - anchor_emb, 'fro', dim=0)
+            dist_to_mean = torch.norm(emb - anchor_emb, 'fro', dim=-1)
             # convert distance map to instance pmaps
             inst_pmap = self.dist_to_mask(dist_to_mean)
             # add channel dim and save fake masks
@@ -485,55 +491,6 @@ class TargetMeanMaskExtractor(TargetBasedMaskExtractor):
 class TargetRandomMaskExtractor(TargetBasedMaskExtractor):
     def __init__(self, dist_to_mask):
         super().__init__(dist_to_mask, RandomEmbeddingAnchor())
-
-
-def extract_fake_masks(emb, dist_to_mask, volume_threshold=0.1, max_instances=40, max_iterations=100):
-    """
-    Extracts instance pmaps given the embeddings. The algorithm works by using a heuristic to find so called
-    'anchor embeddings' (think of it as a cluster centers), then for each of the anchors it computes the distance map
-    and uses the 'dist_to_mask' kernel in order to convert a given distance map to a given instance pmap.
-
-    Args:
-        emb: pixel embeddings (ExSPATIAL), where E is the embedding dim
-        dist_to_mask: kernel converting a distance map to instance pmaps
-        volume_threshold: percentage of the overall volume that can be left unsegmented
-        max_instances: maximum number of instance pmaps to be returned
-        max_iterations: maximum number of iterations
-
-    Returns:
-        a list of instance pmaps
-    """
-    # initialize the volume in order to track visited voxels
-    visited = torch.ones(emb.shape[1:])
-
-    results = []
-    mask_sizes = []
-    # check stop criteria
-    while visited.sum() > visited.numel() * volume_threshold and len(results) < max_iterations:
-        # get voxel coordinates
-        z, y, x = torch.nonzero(visited, as_tuple=True)
-        ind = torch.randint(len(z), (1,))[0]
-        anchor_emb = emb[:, z[ind], y[ind], x[ind]]
-        # (E,) -> (E, 1, 1, 1)
-        anchor_emb = anchor_emb[..., None, None, None]
-
-        # compute distance map; embeddings is ExSPATIAL, anchor_embeddings is ExSINGLETON_SPATIAL, so we can just broadcast
-        dist_to_anchor = torch.norm(emb - anchor_emb, 'fro', dim=0)
-        inst_mask = dist_to_anchor < dist_to_mask.delta_var
-        # convert distance map to instance pmaps
-        inst_pmap = dist_to_mask(dist_to_anchor)
-
-        mask_sizes.append(inst_mask.sum())
-        results.append(inst_pmap.unsqueeze(0))
-
-        # update visited array
-        visited[inst_mask] = 0
-
-    # get the biggest instances and limit the instances due to OOM errors
-    results = [x for _, x in sorted(zip(mask_sizes, results), key=lambda pair: pair[0])]
-    results = results[:max_instances]
-
-    return results
 
 
 def create_real_masks(target):
@@ -561,13 +518,7 @@ class MeanEmbeddingAnchor:
     def __call__(self, emb, tar):
         instances = torch.unique(tar)
         C = instances.size(0)
-
-        single_target = expand_as_one_hot(tar.unsqueeze(0), C).squeeze(0)
-        single_target = single_target.unsqueeze(1)
-        spatial_dims = emb.dim() - 1
-
-        cluster_means, _, _ = compute_cluster_means(emb, single_target, spatial_dims)
-        return cluster_means
+        return compute_cluster_means(emb, tar, C)
 
 
 class RandomEmbeddingAnchor:
@@ -589,10 +540,4 @@ class RandomEmbeddingAnchor:
                 anchor_emb = emb[:, z[ind], y[ind], x[ind]]
             anchor_embeddings.append(anchor_emb)
 
-        result = torch.stack(anchor_embeddings, dim=0).to(emb.device)
-        # expand dimensions
-        if tar.dim() == 2:
-            result = result[..., None, None]
-        else:
-            result = result[..., None, None, None]
-        return result
+        return torch.stack(anchor_embeddings, dim=0).to(emb.device)
