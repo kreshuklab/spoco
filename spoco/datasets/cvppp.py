@@ -79,7 +79,7 @@ DEFAULT_RAW_TRANSFORM = transforms.Compose(
     ]
 )
 
-# used with MoCo embedding trainer
+# used with SPOCO embedding trainer
 BASE_TRANSFORM = transforms.Compose(
     [
         transforms.RandomResizedCrop(448, scale=(0.7, 1.)),

@@ -74,7 +74,7 @@ class Trainer:
             im_k = im_k.to(self.device)
             target = target.to(self.device)
 
-            # forward pass through MoCoUNet
+            # forward pass through SpocoUNet
             emb_q, emb_k = self.model(im_q, im_k)
             emb_k = emb_k.detach()
             input = (im_q, im_k)
@@ -158,7 +158,7 @@ class Trainer:
                 im_k = im_k.to(self.device)
                 target = target.to(self.device)
 
-                # forward pass through MoCo
+                # forward pass through SpocoUNet
                 emb_q, emb_k = self.model(im_q, im_k)
 
                 # compute embedding consistency loss

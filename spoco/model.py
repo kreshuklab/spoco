@@ -151,13 +151,9 @@ class WGANDiscriminator(nn.Module):
         return np.prod(last_encoder_dim)
 
 
-class MoCoUNet(nn.Module):
-    """
-    Implementation based on https://github.com/facebookresearch/moco/blob/master/moco/builder.py
-    """
-
+class SpocoUNet(nn.Module):
     def __init__(self, unet_q, unet_k, m=0.999, init_equal=True):
-        super(MoCoUNet, self).__init__()
+        super(SpocoUNet, self).__init__()
 
         self.unet_q = unet_q
         self.unet_k = unet_k
@@ -226,7 +222,7 @@ def create_model(args):
     else:
         momentum = 0.999
 
-    model = MoCoUNet(unet_q, unet_k, m=momentum)
+    model = SpocoUNet(unet_q, unet_k, m=momentum)
 
     # use DataParallel
     if torch.cuda.device_count() > 1:
