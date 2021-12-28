@@ -754,7 +754,7 @@ class EmbeddingConsistencyContrastiveLoss(ExtendedContrastiveLoss):
             if unlabeled_mask.sum() < self.volume_threshold * unlabeled_mask.numel():
                 continue
             emb_consistency_loss = self.emb_consistency(e_q, e_k, unlabeled_mask)
-            contrastive_loss += self.consistency_term_weight + emb_consistency_loss
+            contrastive_loss += self.consistency_term_weight * emb_consistency_loss
 
         return contrastive_loss
 
