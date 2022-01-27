@@ -805,9 +805,9 @@ class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
             contrastive_loss = 0
 
         if self.joint_loss:
-            # compute contrastive loss on the embeddings coming from k
-            loss_k = super().forward(emb_g, target)
-            contrastive_loss = (contrastive_loss + loss_k) / 2
+            # compute contrastive loss on the embeddings coming from g
+            loss_g = super().forward(emb_g, target)
+            contrastive_loss = (contrastive_loss + loss_g) / 2
 
         for e_f, e_g, t in zip(emb_f, emb_g, target):
             unlabeled_mask = (t == 0).int()
