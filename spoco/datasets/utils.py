@@ -4,54 +4,44 @@ import torch
 from torch.utils.data import DataLoader
 
 from spoco.datasets.cvppp import CVPPP2017Dataset
-from spoco.datasets.dsb import DSB2018Dataset
 
 
-def create_train_val_loaders(ds_name, ds_path, batch_size, num_workers, instance_ratio, random_seed):
-    if ds_name == 'cvppp':
-        train_datasets = CVPPP2017Dataset(ds_path, 'train', instance_ratio=instance_ratio, random_seed=random_seed)
-        val_datasets = CVPPP2017Dataset(ds_path, 'val')
-    elif ds_name == 'dsb':
-        train_datasets = DSB2018Dataset(ds_path, 'train', instance_ratio=instance_ratio, random_seed=random_seed)
-        val_datasets = DSB2018Dataset(ds_path, 'val')
+def create_train_val_loaders(args):
+    if args.ds_name == 'cvppp':
+        train_dataset = CVPPP2017Dataset(args.ds_path, 'train', spoco=args.spoco, instance_ratio=args.instance_ratio,
+                                         seed=args.manual_seed)
+        val_dataset = CVPPP2017Dataset(args.ds_path, 'val')
+    elif args.ds_name == 'cityscapes':
+        pass
+    else:
+        # TODO: add remaining dataset
+        raise RuntimeError(f'Unsupported dataset: {args.ds_name}')
 
-    # TODO: add remaining dataset
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False)
 
-    print(f'Number of workers for train/val dataloader: {num_workers}')
-    print(f'Batch size for train/val loader: {batch_size}')
-    if torch.cuda.device_count() > 1:
-        print(f'{torch.cuda.device_count()} GPUs available. '
-              f'Increasing batch_size: {torch.cuda.device_count()} * {batch_size}')
-        batch_size = batch_size * torch.cuda.device_count()
-
-    # when training with volumetric data use batch_size of 1 due to GPU memory constraints
-    return (
-        DataLoader(train_datasets, batch_size=batch_size, shuffle=True, num_workers=num_workers),
-        # don't shuffle during validation
-        DataLoader(val_datasets, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    )
+    # shuffling should be done in the Sampler
+    return [DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False,
+                       num_workers=args.num_workers, pin_memory=True, sampler=train_sampler, drop_last=False),
+            DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
+                       num_workers=args.num_workers, pin_memory=True, sampler=val_sampler, drop_last=False)]
 
 
-def create_test_loader(ds_name, ds_path, batch_size, num_workers):
-    if ds_name == 'cvppp':
-        test_dataset = CVPPP2017Dataset(ds_path, 'test')
-    elif ds_name == 'dsb':
-        test_dataset = DSB2018Dataset(ds_path, 'test')
+def create_test_loader(args):
+    if args.ds_name == 'cvppp':
+        test_dataset = CVPPP2017Dataset(args.ds_path, 'test')
+    elif args.ds_name == 'cityscapes':
+        pass
+    else:
+        # TODO: add remaining dataset
+        raise RuntimeError(f'Unsupported dataset {args.ds_name}')
 
-    # TODO: add remaining dataset
-
-    print(f'Batch size for test loader: {batch_size}')
-    if torch.cuda.device_count() > 1:
-        print(f'{torch.cuda.device_count()} GPUs available. '
-              f'Increasing batch_size: {torch.cuda.device_count()} * {batch_size}')
-        batch_size = batch_size * torch.cuda.device_count()
-
-    if ds_name in ('cvppp', 'dsb'):
+    if args.ds_name in ('cvppp', 'cityscapes'):
         collate_fn = dsb_prediction_collate
     else:
         collate_fn = default_prediction_collate
 
-    return DataLoader(test_dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn)
+    return DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
 
 
 def dsb_prediction_collate(batch):

@@ -1,14 +1,14 @@
 import argparse
+import builtins
+import os
 import random
 
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
-from spoco.datasets.utils import create_train_val_loaders
-from spoco.losses import create_loss
-from spoco.metrics import create_eval_metric
-from spoco.model import get_number_of_learnable_parameters, create_model
-from spoco.trainer import create_trainer
-from spoco.utils import create_optimizer, create_lr_scheduler, SUPPORTED_DATASETS
+from spoco.trainer import SpocoTrainer, UNetTrainer
+from spoco.utils import SUPPORTED_DATASETS
 
 parser = argparse.ArgumentParser(description='SPOCO train')
 parser.add_argument('--manual-seed', type=int, default=None, help="RNG seed for deterministic training")
@@ -20,7 +20,7 @@ parser.add_argument('--ds-path', type=str, required=True, help='Path to the data
 parser.add_argument('--instance-ratio', type=float, default=None,
                     help='ratio of ground truth instances that should be taken for training')
 parser.add_argument('--batch-size', type=int, default=4)
-parser.add_argument('--num-workers', type=int, default=8)
+parser.add_argument('--num-workers', type=int, default=4)
 
 # model config
 parser.add_argument('--model-name', type=str, default="UNet2D", help="UNet2D or UNet3D")
@@ -38,6 +38,8 @@ parser.add_argument('--loss-delta-dist', type=float, default=2.0, help="Push for
 parser.add_argument('--loss-alpha', type=float, default=1.0, help="Pull force term weight")
 parser.add_argument('--loss-beta', type=float, default=1.0, help="Push force term weight")
 parser.add_argument('--loss-gamma', type=float, default=0.001, help="Regularizer term weight")
+parser.add_argument('--instance-loss', type=str, default='dice',
+                    help="Type of the instance-based loss (dice/affinity/bce/dice_aff")
 parser.add_argument('--loss-unlabeled-push', type=float, default=0.0,
                     help="Unlabeled region push force weight. If greater than 0 then sparse object training mode"
                          "is assumed and 0-label corresponds to the unlabeled region, i.e. no pull force applied to 0-label")
@@ -50,73 +52,75 @@ parser.add_argument('--kernel-threshold', type=float, default=0.5,
 parser.add_argument('--learning-rate', type=float, default=0.0002, help="Initial learning rate")
 parser.add_argument('--weight-decay', type=float, default=0.00001, help="Weight decay regularization")
 parser.add_argument('--betas', type=float, nargs="+", default=[0.9, 0.999], help="Adam optimizer params")
-parser.add_argument('--patience', type=int, default=10, help="Learning rate scheduler patience")
-parser.add_argument('--lr-factor', type=float, default=0.2, help="Learning rate scheduler factor")
+parser.add_argument('--schedule', type=int, nargs="+", help="Multistep LR schedule")
+parser.add_argument('--cos', action='store_true', help="Use cosine learning rate scheduler")
 
 # trainer config
+parser.add_argument('--spoco', action='store_true', help="Indicate SPOCO training with consistency loss")
 parser.add_argument('--checkpoint-dir', type=str, required=True, help="Model and tensorboard logs directory")
 parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")
-parser.add_argument('--validate-after-iters', type=int, required=True,
-                    help="Number of iterations between validation runs")
 parser.add_argument('--max-num-iterations', type=int, required=True, help="Maximum number of iterations")
+parser.add_argument('--max-num-epochs', type=int, required=True, help="Maximum number of epochs")
 
-# WGAN training
-parser.add_argument('--gan', action='store_true', help='Train in GAN setting')
-parser.add_argument('--gradient-penalty-weight', type=float, default=10.0, help='WGAN gradient penalty weight')
-parser.add_argument('--bootstrap-embeddings', type=int, default=None,
-                    help='Number of iters to bootstrap embedding model (Generator)')
-parser.add_argument('--gan-loss-weight', type=float, default=0.1, help='Weighting applied to the WGAN loss term')
-parser.add_argument('--critic-iters', type=int, default=2, help='Number of critic iters per generator iters')
+# distributed settings
+parser.add_argument('--nodes', default=1, type=int, help='number of nodes for distributed training')
+parser.add_argument('--node-rank', default=0, type=int, help='node rank for distributed training')
+parser.add_argument('--master-addr', default='localhost', type=str, help='IP addr of the master node')
+parser.add_argument('--master-port', default='12357', type=str, help='port on the master node')
+parser.add_argument('--gpu', default=0, type=int)
+parser.add_argument('--rank', default=0, type=int)
+
+
+def setup(rank, args):
+    os.environ['MASTER_ADDR'] = args.master_addr
+    os.environ['MASTER_PORT'] = args.master_port
+
+    # initialize the process group
+    dist.init_process_group("gloo", rank=rank, world_size=torch.cuda.device_count() * args.nodes)
+
+
+def train(gpu, args):
+    rank = args.node_rank * torch.cuda.device_count() + gpu
+    print(f'Running DDP training on rank {rank}. GPU id {gpu}.')
+    args.rank = rank
+    args.gpu = gpu
+    # setup the process group
+    setup(rank, args)
+    torch.cuda.set_device(gpu)
+    # disable logging for non-master node
+    if gpu != 0:
+        def fake_print(*args):
+            pass
+
+        builtins.print = fake_print
+
+    # create trainer
+    if args.spoco:
+        trainer = SpocoTrainer(args)
+    else:
+        trainer = UNetTrainer(args)
+    print(f'Starting training')
+    trainer.train()
 
 
 def main():
     args = parser.parse_args()
 
-    manual_seed = args.manual_seed
-    if manual_seed is not None:
-        print(f'Seed the RNG for all devices with {manual_seed}')
-        random.seed(args.seed)
-        torch.manual_seed(manual_seed)
+    if not torch.cuda.is_available():
+        raise RuntimeError('Only GPU training is supported')
+
+    seed = args.manual_seed
+    if seed is not None:
+        print(f'Seed the RNG for all devices with {seed}')
+        random.seed(seed)
+        torch.manual_seed(seed)
         # see https://pytorch.org/docs/stable/notes/randomness.html
         torch.backends.cudnn.deterministic = True
+        print('Using CuDNN deterministic setting. This may slow down the training!')
 
-    # create model
-    model = create_model(args)
-    device_str = "cuda" if torch.cuda.is_available() else 'cpu'
-    device = torch.device(device_str)
-    print(f"Sending the model to '{device}'")
-    model = model.to(device)
-    print(model)
-    print(f'Number of learnable params {get_number_of_learnable_parameters(model)}')
-
-    # initialize loss
-    loss_criterion = create_loss(args.loss_delta_var, args.loss_delta_dist,
-                                 args.loss_alpha, args.loss_beta, args.loss_gamma,
-                                 args.loss_unlabeled_push, args.loss_instance_weight,
-                                 args.loss_consistency_weight, args.kernel_threshold)
-    loss_criterion = loss_criterion.to(device)
-    print(f'Using loss function: {loss_criterion}')
-
-    # init eval criterion
-    eval_criterion = create_eval_metric(args.ds_name, args.loss_delta_var)
-    print(f'Using eval criterion: {eval_criterion}')
-
-    # create optimizer
-    optimizer = create_optimizer(args.learning_rate, model, args.weight_decay, args.betas)
-    # we use DiceScore and AveragePrecision so higher is always better, i.e. mode='max'
-    lr_scheduler = create_lr_scheduler(optimizer, args.patience, mode='max', factor=args.lr_factor)
-
-    # create dataloaders
-    print(f'Loading dataset from: {args.ds_path}')
-    train_loader, val_loader = create_train_val_loaders(args.ds_name, args.ds_path, args.batch_size, args.num_workers,
-                                                        args.instance_ratio, manual_seed)
-
-    # create trainer
-    trainer = create_trainer(model, optimizer, lr_scheduler, loss_criterion, eval_criterion, device, train_loader,
-                             val_loader, args)
-    # start training
-    trainer.fit()
+    nprocs = torch.cuda.device_count()
+    mp.spawn(train, args=(args,), nprocs=nprocs)
 
 
 if __name__ == '__main__':

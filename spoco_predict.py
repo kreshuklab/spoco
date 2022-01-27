@@ -48,7 +48,7 @@ def main():
     print(f'Saving predictions to: {output_dir}')
 
     # create test loader
-    test_loader = create_test_loader(args.ds_name, args.ds_path, args.batch_size, args.num_workers)
+    test_loader = create_test_loader(args)
 
     # crete predictor
     predictor = create_predictor(model, test_loader, output_dir, device, args)
