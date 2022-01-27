@@ -3,20 +3,16 @@ import random
 
 import numpy as np
 import torch
-import torchvision.transforms as transforms
 from PIL import Image
 from PIL import ImageFile
 
-ImageFile.LOAD_TRUNCATED_IMAGES = True
-from torch.utils.data import Dataset
-
 from spoco.transforms import RgbToLabel, Relabel, GaussianBlur, ImgNormalize, LabelToTensor
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+import torchvision.transforms as transforms
 
 
 def cvppp_sample_instances(pil_img, instance_ratio, random_state, ignore_labels=(0,)):
-    """
-    For a given PIL label image, select an `instance_ratio` of ground truth objects at random for sparse training
-    """
     # convert PIL image to np.array
     label_img = np.array(pil_img)
 
@@ -75,7 +71,8 @@ DEFAULT_RAW_TRANSFORM = transforms.Compose(
             GaussianBlur([.1, 2.])
         ], p=0.5),
         transforms.ToTensor(),
-        ImgNormalize()
+        ImgNormalize(mean=[0.485, 0.456, 0.406],
+                     std=[0.229, 0.224, 0.225])
     ]
 )
 
@@ -98,7 +95,8 @@ EXTENDED_TRANSFORM = transforms.Compose(
             GaussianBlur([.1, 2.])
         ], p=0.5),
         transforms.ToTensor(),
-        ImgNormalize()
+        ImgNormalize(mean=[0.485, 0.456, 0.406],
+                     std=[0.229, 0.224, 0.225])
     ]
 )
 
@@ -108,29 +106,30 @@ SPOCO_TEST = transforms.Compose(
         transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
         GaussianBlur([.1, 2.]),
         transforms.ToTensor(),
-        ImgNormalize()
+        ImgNormalize(mean=[0.485, 0.456, 0.406],
+                     std=[0.229, 0.224, 0.225])
     ]
 )
 
 
-class CVPPP2017Dataset(Dataset):
-    def __init__(self, root_dir, phase, instance_ratio=None, random_seed=None):
+class CVPPP2017Dataset:
+    def __init__(self, root_dir, phase, spoco=False, instance_ratio=None, seed=None):
         assert os.path.isdir(root_dir), f'{root_dir} is not a directory'
         assert phase in ['train', 'val', 'test']
 
-        self.phase = phase
-
-        # use A1 subset only
-        if phase == 'train':
-            root_dir = os.path.join(root_dir, 'training/A1')
+        if spoco:
+            raw_transform = BASE_TRANSFORM
         else:
-            root_dir = os.path.join(root_dir, 'testing/A1')
+            raw_transform = DEFAULT_RAW_TRANSFORM
 
+        self.phase = phase
+        root_dir = os.path.join(root_dir, phase, 'A1')
         self.images, self.paths = self._load_files(root_dir, suffix='rgb')
-        self.file_path = root_dir
-        self.instance_ratio = instance_ratio
+        assert len(self.images) > 0
 
-        self.raw_transform = BASE_TRANSFORM
+        self.instance_ratio = instance_ratio
+        self.raw_transform = raw_transform
+        self.spoco = spoco
 
         self.train_label_transform = transforms.Compose(
             [
@@ -139,14 +138,16 @@ class CVPPP2017Dataset(Dataset):
                 transforms.RandomVerticalFlip(),
                 RgbToLabel(),
                 Relabel(run_cc=False),
-                LabelToTensor(is_semantic=False)
+                LabelToTensor(False),
             ]
         )
 
         self.val_label_transform = transforms.Compose(
             [
                 transforms.Resize(size=(448, 448), interpolation=Image.NEAREST),
-                LabelToTensor(is_semantic=False)
+                RgbToLabel(),
+                Relabel(run_cc=False),
+                LabelToTensor(False),
             ]
         )
 
@@ -154,24 +155,24 @@ class CVPPP2017Dataset(Dataset):
             [
                 transforms.Resize(size=(448, 448)),
                 transforms.ToTensor(),
-                ImgNormalize()
+                ImgNormalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
             ]
         )
 
         if phase == 'train':
             # load labeled images
-            self.masks, _ = self._load_files(root_dir, 'label')
+            self.masks, _ = self._load_files(root_dir, suffix='label')
             # training with sparse object supervision
             if self.instance_ratio is not None and phase == 'train':
-                print(f'SPARSE TRAINING: Sampling {self.instance_ratio} of ground truth objects at random')
                 assert 0 < self.instance_ratio <= 1
-                rs = np.random.RandomState(random_seed)
+                rs = np.random.RandomState(seed)
                 self.masks = [cvppp_sample_instances(m, self.instance_ratio, rs) for m in self.masks]
 
             assert len(self.images) == len(self.masks)
         elif phase == 'val':
             # load labeled images
-            self.masks, _ = self._load_files(root_dir, 'fg')
+            self.masks, _ = self._load_files(root_dir, suffix='label')
             assert len(self.images) == len(self.masks)
 
     def __getitem__(self, idx):
@@ -190,20 +191,28 @@ class CVPPP2017Dataset(Dataset):
             # make it work with torch vision v0.8.0+
             torch.manual_seed(seed)
             mask = self.train_label_transform(mask)
-            # return two augmentations of the same image
-            img1 = EXTENDED_TRANSFORM(img)
-            img2 = EXTENDED_TRANSFORM(img)
-            return img1, img2, mask
+            if self.spoco:
+                img1 = EXTENDED_TRANSFORM(img)
+                img2 = EXTENDED_TRANSFORM(img)
+                return img1, img2, mask
+            else:
+                return img, mask
         elif self.phase == 'val':
             mask = self.masks[idx]
+            seed = np.random.randint(np.iinfo('int32').max)
+            random.seed(seed)
+            img = self.test_transform(img)
+            random.seed(seed)
             mask = self.val_label_transform(mask)
-            img1 = self.test_transform(img)
-            img2 = SPOCO_TEST(img)
-            return img1, img2, mask
+            if self.spoco:
+                return img, img, mask
+            return img, mask
         else:
-            img1 = self.test_transform(img)
-            img2 = SPOCO_TEST(img)
-            return img1, img2, self.paths[idx]
+            if self.spoco:
+                img1 = self.test_transform(img)
+                img2 = SPOCO_TEST(img)
+                return img1, img2, self.paths[idx]
+            return self.test_transform(img), self.paths[idx]
 
     def __len__(self):
         return len(self.images)

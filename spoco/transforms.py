@@ -5,10 +5,7 @@ import torch
 import torchvision.transforms.functional as F
 from PIL import ImageFilter
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
-from scipy.ndimage.filters import convolve
 from skimage import measure
-from skimage.filters import gaussian
-from skimage.segmentation import find_boundaries
 
 
 class RandomFlip:
@@ -200,13 +197,6 @@ class ElasticDeformation:
         return m
 
 
-def blur_boundary(boundary, sigma):
-    boundary = gaussian(boundary, sigma=sigma)
-    boundary[boundary >= 0.5] = 1
-    boundary[boundary < 0.5] = 0
-    return boundary
-
-
 class CropToFixed:
     def __init__(self, random_state, size=(256, 256), centered=False, channelwise=False, **kwargs):
         self.random_state = random_state
@@ -267,317 +257,6 @@ class CropToFixed:
             else:
                 pad_width = (y_pad, x_pad)
             return np.pad(result, pad_width=pad_width, mode='reflect')
-
-
-class AbstractLabelToBoundary:
-    AXES_TRANSPOSE = [
-        (0, 1, 2),  # X
-        (0, 2, 1),  # Y
-        (2, 0, 1)  # Z
-    ]
-
-    def __init__(self, ignore_index=None, aggregate_affinities=False, append_label=False, **kwargs):
-        """
-        :param ignore_index: label to be ignored in the output, i.e. after computing the boundary the label ignore_index
-            will be restored where is was in the patch originally
-        :param aggregate_affinities: aggregate affinities with the same offset across Z,Y,X axes
-        :param append_label: if True append the orignal ground truth labels to the last channel
-        :param blur: Gaussian blur the boundaries
-        :param sigma: standard deviation for Gaussian kernel
-        """
-        self.ignore_index = ignore_index
-        self.aggregate_affinities = aggregate_affinities
-        self.append_label = append_label
-
-    def __call__(self, m):
-        """
-        Extract boundaries from a given 3D label tensor.
-        :param m: input 3D tensor
-        :return: binary mask, with 1-label corresponding to the boundary and 0-label corresponding to the background
-        """
-        assert m.ndim == 3
-
-        kernels = self.get_kernels()
-        boundary_arr = [np.where(np.abs(convolve(m, kernel)) > 0, 1, 0) for kernel in kernels]
-        channels = np.stack(boundary_arr)
-        results = []
-        if self.aggregate_affinities:
-            assert len(kernels) % 3 == 0, "Number of kernels must be divided by 3 (one kernel per offset per Z,Y,X axes"
-            # aggregate affinities with the same offset
-            for i in range(0, len(kernels), 3):
-                # merge across X,Y,Z axes (logical OR)
-                xyz_aggregated_affinities = np.logical_or.reduce(channels[i:i + 3, ...]).astype(np.int)
-                # recover ignore index
-                xyz_aggregated_affinities = _recover_ignore_index(xyz_aggregated_affinities, m, self.ignore_index)
-                results.append(xyz_aggregated_affinities)
-        else:
-            results = [_recover_ignore_index(channels[i], m, self.ignore_index) for i in range(channels.shape[0])]
-
-        if self.append_label:
-            # append original input data
-            results.append(m)
-
-        # stack across channel dim
-        return np.stack(results, axis=0)
-
-    @staticmethod
-    def create_kernel(axis, offset):
-        # create conv kernel
-        k_size = offset + 1
-        k = np.zeros((1, 1, k_size), dtype=np.int)
-        k[0, 0, 0] = 1
-        k[0, 0, offset] = -1
-        return np.transpose(k, axis)
-
-    def get_kernels(self):
-        raise NotImplementedError
-
-
-class StandardLabelToBoundary:
-    def __init__(self, ignore_index=None, append_label=False, blur=False, sigma=1, mode='thick', foreground=False,
-                 **kwargs):
-        self.ignore_index = ignore_index
-        self.append_label = append_label
-        self.blur = blur
-        self.sigma = sigma
-        self.mode = mode
-        self.foreground = foreground
-
-    def __call__(self, m):
-        assert m.ndim == 3
-
-        boundaries = find_boundaries(m, connectivity=2, mode=self.mode)
-        if self.blur:
-            boundaries = blur_boundary(boundaries, self.sigma)
-
-        results = []
-        if self.foreground:
-            foreground = (m > 0).astype('uint8')
-            results.append(_recover_ignore_index(foreground, m, self.ignore_index))
-
-        results.append(_recover_ignore_index(boundaries, m, self.ignore_index))
-
-        if self.append_label:
-            # append original input data
-            results.append(m)
-
-        return np.stack(results, axis=0)
-
-
-class BlobsWithBoundary:
-    def __init__(self, mode=None, append_label=False, blur=False, sigma=1, **kwargs):
-        if mode is None:
-            mode = ['thick', 'inner', 'outer']
-        self.mode = mode
-        self.append_label = append_label
-        self.blur = blur
-        self.sigma = sigma
-
-    def __call__(self, m):
-        assert m.ndim == 3
-
-        # get the segmentation mask
-        results = [(m > 0).astype('uint8')]
-
-        for bm in self.mode:
-            boundary = find_boundaries(m, connectivity=2, mode=bm)
-            if self.blur:
-                boundary = blur_boundary(boundary, self.sigma)
-            results.append(boundary)
-
-        if self.append_label:
-            results.append(m)
-
-        return np.stack(results, axis=0)
-
-
-class BlobsToMask:
-    """
-    Returns binary mask from labeled image, i.e. every label greater than 0 is treated as foreground.
-
-    """
-
-    def __init__(self, append_label=False, boundary=False, cross_entropy=False, **kwargs):
-        self.cross_entropy = cross_entropy
-        self.boundary = boundary
-        self.append_label = append_label
-
-    def __call__(self, m):
-        # get the segmentation mask
-        mask = (m > 0).astype('uint8')
-        results = [mask]
-
-        if self.boundary:
-            outer = find_boundaries(m, connectivity=2, mode='outer')
-            if self.cross_entropy:
-                # boundary is class 2
-                mask[outer > 0] = 2
-                results = [mask]
-            else:
-                results.append(outer)
-
-        if self.append_label:
-            results.append(m)
-
-        return np.stack(results, axis=0)
-
-
-class RandomLabelToAffinities(AbstractLabelToBoundary):
-    """
-    Converts a given volumetric label array to binary mask corresponding to borders between labels.
-    One specify the max_offset (thickness) of the border. Then the offset is picked at random every time you call
-    the transformer (offset is picked form the range 1:max_offset) for each axis and the boundary computed.
-    One may use this scheme in order to make the network more robust against various thickness of borders in the ground
-    truth  (think of it as a boundary denoising scheme).
-    """
-
-    def __init__(self, random_state, max_offset=10, ignore_index=None, append_label=False, z_offset_scale=2, **kwargs):
-        super().__init__(ignore_index=ignore_index, append_label=append_label, aggregate_affinities=False)
-        self.random_state = random_state
-        self.offsets = tuple(range(1, max_offset + 1))
-        self.z_offset_scale = z_offset_scale
-
-    def get_kernels(self):
-        rand_offset = self.random_state.choice(self.offsets)
-        axis_ind = self.random_state.randint(3)
-        # scale down z-affinities due to anisotropy
-        if axis_ind == 2:
-            rand_offset = max(1, rand_offset // self.z_offset_scale)
-
-        rand_axis = self.AXES_TRANSPOSE[axis_ind]
-        # return a single kernel
-        return [self.create_kernel(rand_axis, rand_offset)]
-
-
-class LabelToAffinities(AbstractLabelToBoundary):
-    """
-    Converts a given volumetric label array to binary mask corresponding to borders between labels (which can be seen
-    as an affinity graph: https://arxiv.org/pdf/1706.00120.pdf)
-    One specify the offsets (thickness) of the border. The boundary will be computed via the convolution operator.
-    """
-
-    def __init__(self, offsets, ignore_index=None, append_label=False, aggregate_affinities=False, z_offsets=None,
-                 **kwargs):
-        super().__init__(ignore_index=ignore_index, append_label=append_label,
-                         aggregate_affinities=aggregate_affinities)
-
-        assert isinstance(offsets, list) or isinstance(offsets, tuple), 'offsets must be a list or a tuple'
-        assert all(a > 0 for a in offsets), "'offsets must be positive"
-        assert len(set(offsets)) == len(offsets), "'offsets' must be unique"
-        if z_offsets is not None:
-            assert len(offsets) == len(z_offsets), 'z_offsets length must be the same as the length of offsets'
-        else:
-            # if z_offsets is None just use the offsets for z-affinities
-            z_offsets = list(offsets)
-        self.z_offsets = z_offsets
-
-        self.kernels = []
-        # create kernel for every axis-offset pair
-        for xy_offset, z_offset in zip(offsets, z_offsets):
-            for axis_ind, axis in enumerate(self.AXES_TRANSPOSE):
-                final_offset = xy_offset
-                if axis_ind == 2:
-                    final_offset = z_offset
-                # create kernels for a given offset in every direction
-                self.kernels.append(self.create_kernel(axis, final_offset))
-
-    def get_kernels(self):
-        return self.kernels
-
-
-class LabelToZAffinities(AbstractLabelToBoundary):
-    """
-    Converts a given volumetric label array to binary mask corresponding to borders between labels (which can be seen
-    as an affinity graph: https://arxiv.org/pdf/1706.00120.pdf)
-    One specify the offsets (thickness) of the border. The boundary will be computed via the convolution operator.
-    """
-
-    def __init__(self, offsets, ignore_index=None, append_label=False, **kwargs):
-        super().__init__(ignore_index=ignore_index, append_label=append_label)
-
-        assert isinstance(offsets, list) or isinstance(offsets, tuple), 'offsets must be a list or a tuple'
-        assert all(a > 0 for a in offsets), "'offsets must be positive"
-        assert len(set(offsets)) == len(offsets), "'offsets' must be unique"
-
-        self.kernels = []
-        z_axis = self.AXES_TRANSPOSE[2]
-        # create kernels
-        for z_offset in offsets:
-            self.kernels.append(self.create_kernel(z_axis, z_offset))
-
-    def get_kernels(self):
-        return self.kernels
-
-
-class LabelToBoundaryAndAffinities:
-    """
-    Combines the StandardLabelToBoundary and LabelToAffinities in the hope
-    that that training the network to predict both would improve the main task: boundary prediction.
-    """
-
-    def __init__(self, xy_offsets, z_offsets, append_label=False, blur=False, sigma=1, ignore_index=None, mode='thick',
-                 foreground=False, **kwargs):
-        # blur only StandardLabelToBoundary results; we don't want to blur the affinities
-        self.l2b = StandardLabelToBoundary(blur=blur, sigma=sigma, ignore_index=ignore_index, mode=mode,
-                                           foreground=foreground)
-        self.l2a = LabelToAffinities(offsets=xy_offsets, z_offsets=z_offsets, append_label=append_label,
-                                     ignore_index=ignore_index)
-
-    def __call__(self, m):
-        boundary = self.l2b(m)
-        affinities = self.l2a(m)
-        return np.concatenate((boundary, affinities), axis=0)
-
-
-class FlyWingBoundary:
-    """
-    Use if the volume contains a single pixel boundaries between labels. Gives the single pixel boundary in the 1st
-    channel and the 'thick' boundary in the 2nd channel and optional z-affinities
-    """
-
-    def __init__(self, append_label=False, thick_boundary=True, ignore_index=None, z_offsets=None, **kwargs):
-        self.append_label = append_label
-        self.thick_boundary = thick_boundary
-        self.ignore_index = ignore_index
-        self.lta = None
-        if z_offsets is not None:
-            self.lta = LabelToZAffinities(z_offsets, ignore_index=ignore_index)
-
-    def __call__(self, m):
-        boundary = (m == 0).astype('uint8')
-        results = [boundary]
-
-        if self.thick_boundary:
-            t_boundary = find_boundaries(m, connectivity=1, mode='outer', background=0)
-            results.append(t_boundary)
-
-        if self.lta is not None:
-            z_affs = self.lta(m)
-            for z_aff in z_affs:
-                results.append(z_aff)
-
-        if self.ignore_index is not None:
-            for b in results:
-                b[m == self.ignore_index] = self.ignore_index
-
-        if self.append_label:
-            # append original input data
-            results.append(m)
-
-        return np.stack(results, axis=0)
-
-
-class LabelToMaskAndAffinities:
-    def __init__(self, xy_offsets, z_offsets, append_label=False, background=0, ignore_index=None, **kwargs):
-        self.background = background
-        self.l2a = LabelToAffinities(offsets=xy_offsets, z_offsets=z_offsets, append_label=append_label,
-                                     ignore_index=ignore_index)
-
-    def __call__(self, m):
-        mask = m > self.background
-        mask = np.expand_dims(mask.astype(np.uint8), axis=0)
-        affinities = self.l2a(m)
-        return np.concatenate((mask, affinities), axis=0)
 
 
 class Standardize:
@@ -693,14 +372,6 @@ class ToTensor:
         return torch.from_numpy(m.astype(dtype=self.dtype))
 
 
-class SqueezeDims:
-    def __init__(self, **kwargs):
-        pass
-
-    def __call__(self, m):
-        return np.squeeze(m)
-
-
 class Relabel:
     """
     Relabel a numpy array of labels into a consecutive numbers, e.g.
@@ -718,6 +389,8 @@ class Relabel:
 
     def __call__(self, m):
         orig = m
+        m = np.array(m)
+
         if self.run_cc:
             # assign 0 to the ignore region
             m = measure.label(m, background=self.ignore_label)
@@ -759,9 +432,18 @@ class LabelToTensor:
 
 
 class ImgNormalize:
+    def __init__(self, mean=None, std=None):
+        self.mean = mean
+        self.std = std
+
     def __call__(self, tensor):
-        mean = torch.mean(tensor, dim=(1, 2))
-        std = torch.std(tensor, dim=(1, 2))
+        if self.mean is None:
+            mean = torch.mean(tensor, dim=(1, 2))
+            std = torch.std(tensor, dim=(1, 2))
+        else:
+            mean = self.mean
+            std = self.std
+
         return F.normalize(tensor, mean, std)
 
 

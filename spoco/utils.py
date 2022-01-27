@@ -15,7 +15,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 plt.ioff()
 plt.switch_backend('agg')
 
-SUPPORTED_DATASETS = ['cvppp', 'dsb', 'ovules', 'mitoem', 'stem']
+SUPPORTED_DATASETS = ['cvppp', 'cityscapes', 'ovules', 'mitoem', 'stem']
 
 
 class GaussianKernel(nn.Module):
@@ -29,9 +29,12 @@ class GaussianKernel(nn.Module):
         return torch.exp(- dist_map * dist_map / self.two_sigma)
 
 
-def create_optimizer(lr, model, wd=0., betas=(0.9, 0.999)):
-    optimizer = optim.Adam(model.parameters(), lr=lr, betas=betas, weight_decay=wd)
-    return optimizer
+def create_optimizer(model, lr, wd=0., betas=(0.9, 0.999)):
+    if isinstance(model, nn.parallel.DistributedDataParallel):
+        model = model.module
+
+    betas = tuple(betas)
+    return optim.Adam(model.parameters(), lr=lr, betas=betas, weight_decay=wd)
 
 
 def create_lr_scheduler(optimizer, patience, mode, factor=0.2):
@@ -298,48 +301,24 @@ class RunningAverage:
         self.avg = self.sum / self.count
 
 
-def save_checkpoint(state, is_best, checkpoint_dir):
-    """Saves model and training parameters at '{checkpoint_dir}/last_checkpoint.pytorch'.
-    If is_best==True saves '{checkpoint_dir}/best_checkpoint.pytorch' as well.
-
-    Args:
-        state (dict): contains model's state_dict, optimizer's state_dict, epoch
-            and best evaluation metric value so far
-        is_best (bool): if True state contains the best model seen so far
-        checkpoint_dir (string): directory where the checkpoint are to be saved
-    """
-
+def save_checkpoint(state, is_best, filename):
+    checkpoint_dir, _ = os.path.split(filename)
     if not os.path.exists(checkpoint_dir):
-        print(f"Checkpoint directory does not exists. Creating {checkpoint_dir}")
         os.mkdir(checkpoint_dir)
 
-    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
-    print(f"Saving last checkpoint to '{last_file_path}'")
-    torch.save(state, last_file_path)
+    torch.save(state, filename)
     if is_best:
         best_file_path = os.path.join(checkpoint_dir, 'best_checkpoint.pytorch')
-        print(f"Saving best checkpoint to '{best_file_path}'")
-        shutil.copyfile(last_file_path, best_file_path)
+        shutil.copyfile(filename, best_file_path)
 
 
 def load_checkpoint(checkpoint_path, model, optimizer=None,
-                    model_key='model_state_dict', optimizer_key='optimizer_state_dict'):
-    """Loads model and training parameters from a given checkpoint_path
-    If optimizer is provided, loads optimizer's state_dict of as well.
-
-    Args:
-        checkpoint_path (string): path to the checkpoint to be loaded
-        model (torch.nn.Module): model into which the parameters are to be copied
-        optimizer (torch.optim.Optimizer) optional: optimizer instance into
-            which the parameters are to be copied
-
-    Returns:
-        state
-    """
+                    model_key='model_state_dict', optimizer_key='optimizer_state_dict',
+                    map_location=None):
     if not os.path.exists(checkpoint_path):
         raise IOError(f"Checkpoint '{checkpoint_path}' does not exist")
 
-    state = torch.load(checkpoint_path, map_location='cpu')
+    state = torch.load(checkpoint_path, map_location=map_location)
     model.load_state_dict(state[model_key])
 
     if optimizer is not None:
@@ -374,18 +353,6 @@ def pca_project(embeddings):
     return img.astype('uint8')
 
 
-def dsb_train_val_test_split(root_dir, random_state, train_ratio=0.8):
-    images = os.listdir(root_dir)
-    # shuffle images
-    random_state.shuffle(images)
-    # get train, val, test counts
-    img_count = len(images)
-    train_count = int(img_count * train_ratio)
-    val_count = (img_count - train_count) // 2
-
-    train_images = images[:train_count]
-    val_images = images[train_count:train_count + val_count]
-    test_images = images[train_count + val_count:]
-
-    assert len(images) == len(train_images) + len(val_images) + len(test_images)
-    return train_images, val_images, test_images
+def minmax_norm(img):
+    channels = [np.nan_to_num((c - np.min(c)) / np.ptp(c)) for c in img]
+    return np.stack(channels, axis=0)
