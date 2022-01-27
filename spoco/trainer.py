@@ -127,7 +127,6 @@ class AbstractTrainer:
                 output_img = pca_project(output_img.detach().cpu().numpy())
                 target_img = target_img.detach().cpu().numpy().astype(np.uint8)
                 target_img = label2rgb(target_img)
-                print('target', np.unique(target_img), target_img.dtype, target_img.shape)
                 self.writer.add_image(prefix + f'{i}_input', input_img, self.num_iterations)
                 self.writer.add_image(prefix + f'{i}_output', output_img, self.num_iterations)
                 self.writer.add_image(prefix + f'{i}_target', target_img, self.num_iterations, dataformats='HWC')

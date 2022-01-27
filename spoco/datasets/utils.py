@@ -3,18 +3,20 @@ import collections
 import torch
 from torch.utils.data import DataLoader
 
+from spoco.datasets.cityscapes import CityscapesDataset
 from spoco.datasets.cvppp import CVPPP2017Dataset
 
 
 def create_train_val_loaders(args):
     if args.ds_name == 'cvppp':
-        train_dataset = CVPPP2017Dataset(args.ds_path, 'train', spoco=args.spoco, instance_ratio=args.instance_ratio,
-                                         seed=args.manual_seed)
-        val_dataset = CVPPP2017Dataset(args.ds_path, 'val')
+        train_dataset = CVPPP2017Dataset(args.ds_path, phase='train', spoco=args.spoco,
+                                         instance_ratio=args.instance_ratio, seed=args.manual_seed)
+        val_dataset = CVPPP2017Dataset(args.ds_path, 'val', spoco=args.spoco)
     elif args.ds_name == 'cityscapes':
-        pass
+        train_dataset = CityscapesDataset(args.ds_path, phase='train', class_name=args.things_class, spoco=args.spoco,
+                                          instance_ratio=args.instance_ratio)
+        val_dataset = CityscapesDataset(args.ds_path, phase='val', class_name=args.things_class, spoco=args.spoco)
     else:
-        # TODO: add remaining dataset
         raise RuntimeError(f'Unsupported dataset: {args.ds_name}')
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)

@@ -17,6 +17,8 @@ parser.add_argument('--manual-seed', type=int, default=None, help="RNG seed for 
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')
+parser.add_argument('--things-class', type=str, help='Cityscapes instance class. If None, train with all things classes',
+                    default=None)
 parser.add_argument('--instance-ratio', type=float, default=None,
                     help='ratio of ground truth instances that should be taken for training')
 parser.add_argument('--batch-size', type=int, default=4)

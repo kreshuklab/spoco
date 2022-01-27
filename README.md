@@ -34,8 +34,7 @@ use `CUDA_VISIBLE_DEVICES`, e.g. `CUDA_VISIBLE_DEVICES=0 python spoco_train.py .
 We used A1 subset of the [CVPPP2017_LSC challenge](https://competitions.codalab.org/competitions/18405) for training. In order to train with 10% of randomly selected objects, run:
 ```bash
 python spoco_train.py \
-    --spoco
-    --cos
+    --spoco \
     --ds-name cvppp --ds-path CVPPP_ROOT_DIR \
     --instance-ratio 0.1 \
     --batch-size 4  \
@@ -44,6 +43,7 @@ python spoco_train.py \
     --model-feature-maps 16 32 64 128 256 512 \ 
     --learning-rate 0.0002 \
     --weight-decay 0.00001 \
+    --cos \
     --loss-delta-var 0.5 \
     --loss-delta-dist 2.0 \
     --loss-unlabeled-push 1.0 \ 
@@ -76,9 +76,50 @@ python spoco_train.py \
 ```
 Since the CVPPP dataset consist of only `training` and `testing` subdirectories, one has to create the train/val split manually using the `training` subdir.
 
-### 3D Training
+### Cityscapes Dataset
+Download the images `leftImg8bit_trainvaltest.zip` and the labels `gtFine_trainvaltest.zip` from the [Cityscapes website](https://www.cityscapes-dataset.com/downloads)
+and extract them into the `CITYSCAPES_ROOT_DIR` of your choice, so it has the following structure:
+```
+    - gtFine:
+        - train
+        - val
+        - test
 
-TODO
+    - leftImg8bit:
+        - train
+        - val
+        - test
+```
+
+Create random samplings of each class using the [cityscapesampler.py](spoco/datasets/cityscapesampler.py) script:
+```bash
+python spoco/datasets/cityscapesampler.py --base_dir CITYSCAPES_ROOT_DIR --class_names person rider car truck bus train motorcycle bicycle 
+```
+this will randomly sample 10%, 20%, ..., 90% of objects from the specified class and save the results in dedicated directories,
+e.g. `CITYSCAPES_ROOT_DIR/gtFine/train/darmstadt/car/0.4` will contain random 40% of objects of class `car`.
+
+In order to train with 40% of randomly selected objects of class car, run:
+```bash
+python spoco_train.py \
+    --spoco \
+    --ds-name cityscapes --ds-path CITYSCAPES_ROOT_DIR --things-class car \
+    --instance-ratio 0.4 \
+    --batch-size 16  \
+    --model-name UNet2D \
+    --model-layer-order bcr \
+    --model-feature-maps 16 32 64 128 256 512 \ 
+    --learning-rate 0.001 \
+    --weight-decay 0.00001 \
+    --cos \
+    --loss-delta-var 0.5 \
+    --loss-delta-dist 2.0 \
+    --loss-unlabeled-push 1.0 \ 
+    --loss-instance-weight 1.0 \
+    --loss-consistency-weight 1.0 \
+    --kernel-threshold 0.5 \
+    --checkpoint-dir CHECKPOINT_DIR \ 
+    --log-after-iters 500  --max-num-iterations 90000 
+```
 
 ## Prediction
 Give a model trained on the CVPPP dataset, run the prediction using the following command:

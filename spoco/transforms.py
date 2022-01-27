@@ -372,14 +372,6 @@ class ToTensor:
         return torch.from_numpy(m.astype(dtype=self.dtype))
 
 
-class SqueezeDims:
-    def __init__(self, **kwargs):
-        pass
-
-    def __call__(self, m):
-        return np.squeeze(m)
-
-
 class Relabel:
     """
     Relabel a numpy array of labels into a consecutive numbers, e.g.
@@ -397,6 +389,8 @@ class Relabel:
 
     def __call__(self, m):
         orig = m
+        m = np.array(m)
+
         if self.run_cc:
             # assign 0 to the ignore region
             m = measure.label(m, background=self.ignore_label)
@@ -438,9 +432,18 @@ class LabelToTensor:
 
 
 class ImgNormalize:
+    def __init__(self, mean=None, std=None):
+        self.mean = mean
+        self.std = std
+
     def __call__(self, tensor):
-        mean = torch.mean(tensor, dim=(1, 2))
-        std = torch.std(tensor, dim=(1, 2))
+        if self.mean is None:
+            mean = torch.mean(tensor, dim=(1, 2))
+            std = torch.std(tensor, dim=(1, 2))
+        else:
+            mean = self.mean
+            std = self.std
+
         return F.normalize(tensor, mean, std)
 
 
