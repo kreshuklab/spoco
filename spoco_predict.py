@@ -2,6 +2,7 @@ import argparse
 
 import os
 import torch
+from torch import nn
 
 from spoco.datasets.utils import create_test_loader
 from spoco.predictor import create_predictor
@@ -14,8 +15,12 @@ parser = argparse.ArgumentParser(description='SPOCO predict')
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')
+parser.add_argument('--save-gt', action='store_true', help="Save ground truth segmentation in the output")
+parser.add_argument('--things-class', type=str,
+                    help='(Optional. For saving ground truth only) Cityscapes instance class. If None, train with all things classes',
+                    default=None)
 parser.add_argument('--batch-size', type=int, default=4)
-parser.add_argument('--num-workers', type=int, default=8)
+parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--output-dir', type=str, default='.', help='Directory where prediction are to be saved')
 
 # model config
@@ -32,15 +37,20 @@ parser.add_argument('--model-layer-order', type=str, default="bcr",
 def main():
     args = parser.parse_args()
 
+    if not torch.cuda.is_available():
+        raise RuntimeError('Only GPU training is supported')
+
     # load model from checkpoint
     model = create_model(args)
-    print(f'Loading model from {args.model_path}...')
-    load_checkpoint(args.model_path, model)
+    # use DataParallel
+    model = nn.DataParallel(model)
+    model.cuda()
+    print(f'Using {torch.cuda.device_count()} GPUs for prediction')
+    if torch.cuda.device_count() > 1:
+        args.batch_size = args.batch_size * torch.cuda.device_count()
 
-    device_str = "cuda" if torch.cuda.is_available() else 'cpu'
-    device = torch.device(device_str)
-    print(f"Sending the model to '{device}'")
-    model = model.to(device)
+    print(f'Loading model from {args.model_path}')
+    load_checkpoint(args.model_path, model)
 
     # create output dir if necessary
     output_dir = args.output_dir
@@ -51,7 +61,7 @@ def main():
     test_loader = create_test_loader(args)
 
     # crete predictor
-    predictor = create_predictor(model, test_loader, output_dir, device, args)
+    predictor = create_predictor(model, test_loader, output_dir, args)
     # run inference
     predictor.predict()
 

@@ -106,15 +106,7 @@ if __name__ == '__main__':
 
     if args.ds_name == 'cvppp':
         cluster_images(args)
-    elif args.ds_name == 'dsb':
-        cluster_images(args)
-    elif args.ds_name == 'ovules':
-        # TODO
-        pass
-    elif args.ds_name == 'stem':
-        # TODO
-        pass
-    elif args.ds_name == 'mitoem':
+    elif args.ds_name == 'cityscapes':
         # TODO
         pass
     else:

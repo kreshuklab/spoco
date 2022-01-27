@@ -138,6 +138,17 @@ Results will be saved in the given `OUTPUT_DIR` directory. For each test input i
 * `plantXXX_rgb_predictions_1.png` - output from the `f` embedding network PCA-projected into the RGB-space
 * `plantXXX_rgb_predictions_2.png` - output from the `g` momentum contrast network PCA-projected into the RGB-space
 
+And similarly for the Cityscapes dataset 
+```bash
+python spoco_predict.py \
+    --ds-name cityscapes --ds-path CITYSCAPES_ROOT_DIR \ 
+    --batch-size 16 \ 
+    --model-path MODEL_DIR/best_checkpoint.pytorch \
+    --model-name UNet2D \
+    --model-layer-order bcr \
+    --model-feature-maps 16 32 64 128 256 512 \
+    --output-dir OUTPUT_DIR
+```
 
 ## Clustering
 To produce the final segmentation one needs to cluster the embeddings with and algorithm of choice. Supported

@@ -11,11 +11,11 @@ from spoco.utils import pca_project
 
 
 class Abstract2DEmbeddingsPredictor:
-    def __init__(self, model, test_loader, output_dir, device):
+    def __init__(self, model, test_loader, output_dir, save_gt):
         self.model = model
         self.test_loader = test_loader
         self.output_dir = output_dir
-        self.device = device
+        self.save_gt = save_gt
 
     def predict(self):
         # set the model in evaluation mode explicitly
@@ -25,8 +25,8 @@ class Abstract2DEmbeddingsPredictor:
         with torch.no_grad():
             for img1, img2, path in self.test_loader:
                 # send batch to device
-                img1 = img1.to(self.device)
-                img2 = img2.to(self.device)
+                img1.cuda()
+                img2.cuda()
 
                 # forward pass
                 emb1, emb2 = self.model(img1, img2)
@@ -48,9 +48,9 @@ class Abstract2DEmbeddingsPredictor:
                         f.create_dataset('embeddings1', data=single_emb1.cpu().numpy(), compression='gzip')
                         f.create_dataset('embeddings2', data=single_emb2.cpu().numpy(), compression='gzip')
 
-                        # save ground truth segmentation if provided
-                        gt = self.load_gt_label(single_path)
-                        if gt is not None:
+                        # save ground truth segmentation if needed
+                        if self.save_gt:
+                            gt = self.load_gt_label(single_path)
                             f.create_dataset('label', data=gt, compression='gzip')
 
     def load_gt_label(self, img_path):
@@ -58,8 +58,8 @@ class Abstract2DEmbeddingsPredictor:
 
 
 class CVPPPEmbeddingsPredictor(Abstract2DEmbeddingsPredictor):
-    def __init__(self, model, test_loader, output_dir, device):
-        super().__init__(model, test_loader, output_dir, device)
+    def __init__(self, model, test_loader, output_dir, save_gt):
+        super().__init__(model, test_loader, output_dir, save_gt)
 
     def load_gt_label(self, img_path):
         base, filename = os.path.split(img_path)
@@ -79,6 +79,37 @@ class CVPPPEmbeddingsPredictor(Abstract2DEmbeddingsPredictor):
         return img
 
 
-def create_predictor(model, test_loader, output_dir, device, args):
+class CityscapesEmbeddingsPredictor(Abstract2DEmbeddingsPredictor):
+    def __init__(self, model, test_loader, output_dir, class_name, root_dir, save_gt):
+        super().__init__(model, test_loader, output_dir, save_gt)
+
+        self.annotations_base = os.path.join(root_dir, 'gtFine', 'test')
+        self.class_name = class_name
+        self.label_transform = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.Resize(size=(384, 768), interpolation=Image.NEAREST),
+                Relabel(run_cc=False),
+                torchvision.transforms.ToTensor()
+            ]
+        )
+
+    def load_gt_label(self, img_path):
+        inst_path = os.path.join(
+            self.annotations_base,
+            img_path.split(os.sep)[-2],
+            self.class_name,
+            '1.0',
+            os.path.basename(img_path)[:-15] + "gtFine_instanceIds.png"
+        )
+        mask = Image.open(inst_path)
+        return self.label_transform(mask)
+
+
+def create_predictor(model, test_loader, output_dir, args):
     if args.ds_name == 'cvppp':
-        return CVPPPEmbeddingsPredictor(model, test_loader, output_dir, device)
+        return CVPPPEmbeddingsPredictor(model, test_loader, output_dir, args.save_gt)
+    elif args.ds_name == 'cityscapes':
+        return CityscapesEmbeddingsPredictor(model, test_loader, output_dir, class_name=args.things_class,
+                                             root_dir=args.ds_path, save_gt=args.save_gt)
+    else:
+        raise RuntimeError(f'Unsupported dataset {args.ds_name}')

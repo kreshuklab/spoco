@@ -176,11 +176,4 @@ def create_model(args):
     else:
         momentum = 0.999
 
-    model = SpocoUNet(net_f, net_g, m=momentum)
-
-    # use DataParallel
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
-        print(f'Using {torch.cuda.device_count()} GPUs for training')
-
-    return model
+    return SpocoUNet(net_f, net_g, m=momentum)
