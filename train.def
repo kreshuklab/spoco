@@ -1,0 +1,15 @@
+Bootstrap: docker
+
+From: pytorch/pytorch:1.9.1-cuda11.1-cudnn8-runtime
+
+%files
+  ./ /opt/spoco
+
+%post
+  export PATH="/opt/conda/bin:$PATH"
+  conda install -c conda-forge tensorboard scipy scikit-image scikit-learn pyyaml
+ 
+%runscript
+  export PYTHONPATH="/opt/spoco:$PYTHONPATH"
+  python /opt/spoco/spoco_train.py "$@"
+ 

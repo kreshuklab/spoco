@@ -62,8 +62,8 @@ parser.add_argument('--spoco', action='store_true', help="Indicate SPOCO trainin
 parser.add_argument('--checkpoint-dir', type=str, required=True, help="Model and tensorboard logs directory")
 parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")
-parser.add_argument('--max-num-iterations', type=int, required=True, help="Maximum number of iterations")
-parser.add_argument('--max-num-epochs', type=int, required=True, help="Maximum number of epochs")
+parser.add_argument('--max-num-iterations', type=int, default=None, help="Maximum number of iterations")
+parser.add_argument('--max-num-epochs', type=int, default=None, help="Maximum number of epochs")
 
 # distributed settings
 parser.add_argument('--nodes', default=1, type=int, help='number of nodes for distributed training')
