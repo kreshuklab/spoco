@@ -31,7 +31,7 @@ def create_train_val_loaders(args):
 
 def create_test_loader(args):
     if args.ds_name == 'cvppp':
-        test_dataset = CVPPP2017Dataset(args.ds_path, 'test')
+        test_dataset = CVPPP2017Dataset(args.ds_path, phase='test', spoco=args.spoco)
     elif args.ds_name == 'cityscapes':
         test_dataset = CityscapesDataset(args.ds_path, phase='test', class_name=args.things_class, spoco=args.spoco)
     else:

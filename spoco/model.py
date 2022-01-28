@@ -164,13 +164,16 @@ def create_model(args):
         f_maps=args.model_feature_maps,
         layer_order=args.model_layer_order
     )
+
+    if not args.spoco:
+        return net_f
+
     net_g = model_class(
         in_channels=args.model_in_channels,
         out_channels=args.model_out_channels,
         f_maps=args.model_feature_maps,
         layer_order=args.model_layer_order
     )
-    # train using two embedding networks
     if hasattr(args, 'momentum'):
         momentum = args.momentum
     else:
