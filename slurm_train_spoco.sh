@@ -30,11 +30,11 @@ ret_val=$?; if (( $ret_val > $exit_code )); then exit_code=$ret_val; fi
 
 # save job results
 cd "$LOCAL_JOB_DIR"
-tar -cf dsb_${SLURM_JOB_ID}.tar job_results
-cp dsb_${SLURM_JOB_ID}.tar $SLURM_SUBMIT_DIR
+tar -cf cityscapes_${SLURM_JOB_ID}.tar job_results
+cp cityscapes_${SLURM_JOB_ID}.tar $SLURM_SUBMIT_DIR
 rm -rf ${LOCAL_JOB_DIR}/job_results
 
 exit $exit_code
 
 # run CL with Dice and Consistency
-# sbatch slurm_train_spoco.sh --spoco --ds-name cityscapes --ds-path /mnt/Cityscapes --things-class bicycle --batch-size 16 --loss-unlabeled-push 0.0 --checkpoint-dir /mnt/job_results --log-after-iters 2000 --max-num-iterations 90000 --cos
+# sbatch -p gpu1or3 slurm_train_spoco.sh --spoco --ds-name cityscapes --ds-path /mnt/Cityscapes --things-class bicycle --batch-size 16 --loss-unlabeled-push 0.0 --checkpoint-dir /mnt/job_results --log-after-iters 2000 --max-num-iterations 90000 --cos
