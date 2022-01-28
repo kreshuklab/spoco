@@ -108,6 +108,7 @@ def train(gpu, args):
 
 def main():
     args = parser.parse_args()
+    print('ARGS:', args)
 
     if not torch.cuda.is_available():
         raise RuntimeError('Only GPU training is supported')
