@@ -47,11 +47,11 @@ class AbstractTrainer:
         assert self.max_num_iterations is not None or self.max_num_epochs is not None
 
         if self.max_num_epochs is None:
-            self.max_num_epochs = self.max_num_iterations // len(self.train_loader.dataset) + 1
+            self.max_num_epochs = args.batch_size * self.max_num_iterations // len(self.train_loader.dataset) + 1
             print('Computed max number of epochs:', self.max_num_epochs)
 
         if self.max_num_iterations is None:
-            self.max_num_iterations = self.max_num_epochs * len(self.train_loader.dataset)
+            self.max_num_iterations = self.max_num_epochs * len(self.train_loader.dataset) // args.batch_size
             print('Computed max number of iterations:', self.max_num_iterations)
 
         self.log_after_iters = args.log_after_iters
