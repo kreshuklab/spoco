@@ -44,7 +44,7 @@ class AbstractTrainer:
         self.max_num_iterations = args.max_num_iterations
         self.max_num_epochs = args.max_num_epochs
 
-        assert self.max_num_iterations is not None and self.max_num_epochs is not None
+        assert self.max_num_iterations is not None or self.max_num_epochs is not None
 
         if self.max_num_epochs is None:
             self.max_num_epochs = self.max_num_iterations // len(self.train_loader.dataset) + 1

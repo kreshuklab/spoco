@@ -2,7 +2,7 @@
 
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=adrian.wolny@hhi-extern.fraunhofer.de
-#SBATCH --job-name=net-artifacts
+#SBATCH --job-name=spoco
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -30,8 +30,8 @@ ret_val=$?; if (( $ret_val > $exit_code )); then exit_code=$ret_val; fi
 
 # save job results
 cd "$LOCAL_JOB_DIR"
-tar -cf cityscapes_${SLURM_JOB_ID}.tar job_results
-cp cityscapes_${SLURM_JOB_ID}.tar $SLURM_SUBMIT_DIR
+tar -cf zz_${SLURM_JOB_ID}.tar job_results
+cp zz_${SLURM_JOB_ID}.tar $SLURM_SUBMIT_DIR
 rm -rf ${LOCAL_JOB_DIR}/job_results
 
 exit $exit_code
