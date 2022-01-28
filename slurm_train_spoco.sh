@@ -37,4 +37,4 @@ rm -rf ${LOCAL_JOB_DIR}/job_results
 exit $exit_code
 
 # run CL with Dice and Consistency
-# sbatch -p gpu1or3 slurm_train_spoco.sh --spoco --ds-name cityscapes --ds-path /mnt/Cityscapes --things-class bicycle --batch-size 16 --loss-unlabeled-push 0.0 --checkpoint-dir /mnt/job_results --log-after-iters 2000 --max-num-iterations 90000 --cos
+# sbatch -p gpu1or3 slurm_train_spoco.sh --spoco --ds-name cityscapes --ds-path /mnt/Cityscapes --things-class bicycle --batch-size 16 --loss-unlabeled-push 0.0 --checkpoint-dir /mnt/job_results --log-after-iters 2000 --max-num-iterations 90000 --max-num-validations 100 --cos

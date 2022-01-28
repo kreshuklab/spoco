@@ -54,6 +54,11 @@ class AbstractTrainer:
             self.max_num_iterations = self.max_num_epochs * len(self.train_loader.dataset) // args.batch_size
             print('Computed max number of iterations:', self.max_num_iterations)
 
+        if args.max_num_validations is None:
+            self.val_every_epochs = 1
+        else:
+            self.val_every_epochs = max(1, self.max_num_epochs // args.max_num_validations)
+
         self.log_after_iters = args.log_after_iters
         self.num_iterations = 0
         self.best_validation_loss = torch.finfo().max
@@ -84,29 +89,31 @@ class AbstractTrainer:
 
             # train for one epoch
             should_stop = self.train_epoch()
-            # evaluate on the validation set
-            self.model.eval()
-            validation_loss = self.validate()
-            self.model.train()
-            # save checkpoint
-            is_best = validation_loss < self.best_validation_loss
-            if is_best:
-                self.best_validation_loss = validation_loss
 
-            if self.rank == 0:
-                checkpoint_file = os.path.join(self.checkpoint_dir, 'checkpoint_{:05d}.pytorch'.format(epoch))
-                save_checkpoint(
-                    {
-                        'epoch': epoch + 1,
-                        'num_iterations': self.num_iterations,
-                        'model_state_dict': self.model.state_dict(),
-                        'best_validation_loss': self.best_validation_loss,
-                        'optimizer': self.optimizer.state_dict()
-                    },
-                    is_best=is_best,
-                    filename=checkpoint_file
-                )
-                print(f'Checkpoint saved: {checkpoint_file}. Best: {is_best}')
+            if epoch % self.val_every_epochs == 0:
+                # evaluate on the validation set
+                self.model.eval()
+                validation_loss = self.validate()
+                self.model.train()
+                # save checkpoint
+                is_best = validation_loss < self.best_validation_loss
+                if is_best:
+                    self.best_validation_loss = validation_loss
+
+                if self.rank == 0:
+                    checkpoint_file = os.path.join(self.checkpoint_dir, 'checkpoint_{:05d}.pytorch'.format(epoch))
+                    save_checkpoint(
+                        {
+                            'epoch': epoch + 1,
+                            'num_iterations': self.num_iterations,
+                            'model_state_dict': self.model.state_dict(),
+                            'best_validation_loss': self.best_validation_loss,
+                            'optimizer': self.optimizer.state_dict()
+                        },
+                        is_best=is_best,
+                        filename=checkpoint_file
+                    )
+                    print(f'Checkpoint saved: {checkpoint_file}. Best: {is_best}')
 
             if should_stop:
                 print('Training finished!')
