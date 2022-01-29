@@ -27,7 +27,7 @@ conda activate spoco
 ```
 
 ## Training
-This implementation uses `DistributedDataParallel` training/prediction. In order to restrict the number of GPUs used for training
+This implementation uses `DistributedDataParallel` training. In order to restrict the number of GPUs used for training
 use `CUDA_VISIBLE_DEVICES`, e.g. `CUDA_VISIBLE_DEVICES=0 python spoco_train.py ...` will execute training on `GPU:0`.
 
 ### CVPPP dataset 
