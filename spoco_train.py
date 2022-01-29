@@ -41,7 +41,7 @@ parser.add_argument('--loss-alpha', type=float, default=1.0, help="Pull force te
 parser.add_argument('--loss-beta', type=float, default=1.0, help="Push force term weight")
 parser.add_argument('--loss-gamma', type=float, default=0.001, help="Regularizer term weight")
 parser.add_argument('--instance-loss', type=str, default='dice',
-                    help="Type of the instance-based loss (dice/affinity/bce/dice_aff")
+                    help="Type of the instance-based loss (dice/affinity/bce")
 parser.add_argument('--loss-unlabeled-push', type=float, default=0.0,
                     help="Unlabeled region push force weight. If greater than 0 then sparse object training mode"
                          "is assumed and 0-label corresponds to the unlabeled region, i.e. no pull force applied to 0-label")

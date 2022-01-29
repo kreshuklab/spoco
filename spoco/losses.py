@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 from torch import nn as nn
+from torch.nn import BCELoss
 
 
 def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
@@ -619,33 +620,17 @@ class SpocoContrastiveLoss(AbstractContrastiveLoss):
         # ignore instance corresponding to 0-label
         self.delta_var = delta_var
         # init auxiliary loss
-        # TODO: add BCE loss
-        assert instance_loss in ['dice', 'affinity', 'dice_aff']
+        assert instance_loss in ['dice', 'bce', 'affinity']
         if instance_loss == 'dice':
             self.instance_loss = DiceLoss(normalization='none')
-        elif instance_loss == 'affinity':
+        elif instance_loss == 'bce':
+            self.instance_loss = BCELoss()
+        else:
             self.instance_loss = AffinitySideLoss(
                 delta_dist=delta_dist,
                 offset_ranges=kwargs.get('offset_ranges', [(-18, 0), (-18, 0)]),
                 n_samples=kwargs.get('n_samples', 9)
             )
-        elif instance_loss == 'dice_aff':
-            # combine dice and affinity side loss
-            dice_weight = kwargs.get('dice_weight', 1.0)
-            aff_weight = kwargs.get('aff_weight', 1.0)
-
-            dice_loss = DiceLoss(normalization='none')
-            aff_loss = AffinitySideLoss(
-                delta_dist=delta_dist,
-                offset_ranges=kwargs.get('offset_ranges', [(-18, 0), (-18, 0)]),
-                n_samples=kwargs.get('n_samples', 9)
-            )
-
-            self.instance_loss = CombinedAuxLoss(
-                losses=[dice_loss, aff_loss],
-                weights=[dice_weight, aff_weight]
-            )
-
         # init dist_to_mask function which maps per-instance distance map to the instance probability map
         self.dist_to_mask = self.Gaussian(delta_var=delta_var, pmaps_threshold=kernel_threshold)
 
@@ -704,15 +689,10 @@ class SpocoContrastiveLoss(AbstractContrastiveLoss):
         else:
             # extract soft and ground truth masks from the feature space
             instance_pmaps, instance_masks = self.create_instance_pmaps_and_masks(embeddings, cluster_means, target)
-
-            if isinstance(self.instance_loss, CombinedAuxLoss):
-                # compute combined affinity and instance-based loss
-                return self.instance_loss(embeddings, target, instance_pmaps, instance_masks)
-            else:
-                # compute instance-based loss
-                if instance_masks is None:
-                    return 0.
-                return self.instance_loss(instance_pmaps, instance_masks).mean()
+            # compute instance-based loss
+            if instance_masks is None:
+                return 0.
+            return self.instance_loss(instance_pmaps, instance_masks).mean()
 
     # kernel function used to convert the distance map (i.e. `||embeddings - anchor_embedding||`) into an instance mask
     class Gaussian(nn.Module):
@@ -740,7 +720,6 @@ class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
         self.consistency_weight = consistency_weight
         self.max_anchors = max_anchors
         self.volume_threshold = volume_threshold
-        self.dice_loss = DiceLoss(normalization='none')
         self.joint_loss = joint_loss
         self.consistency_only = consistency_only
 
@@ -778,8 +757,7 @@ class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
         # stack along channel dim
         soft_masks_f = torch.stack(soft_masks_f)
         soft_masks_g = torch.stack(soft_masks_g)
-
-        return self.dice_loss(soft_masks_f, soft_masks_g)
+        return self.instance_loss(soft_masks_f, soft_masks_g)
 
     def _extract_pmap(self, emb, mask, indices, ind):
         if mask.dim() == 2:
@@ -816,23 +794,6 @@ class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
             contrastive_loss += self.consistency_weight * emb_consistency_loss
 
         return contrastive_loss
-
-
-class CombinedAuxLoss(nn.Module):
-    def __init__(self, losses, weights):
-        super().__init__()
-        self.losses = losses
-        self.weights = weights
-
-    def forward(self, embeddings, target, instance_pmaps, instance_masks):
-        result = 0.
-        for loss, weight in zip(self.losses, self.weights):
-            if isinstance(loss, AffinitySideLoss):
-                result += weight * loss(embeddings, target)
-            else:
-                if instance_masks is not None:
-                    result += weight * loss(instance_pmaps, instance_masks).mean()
-        return result
 
 
 def create_loss(delta_var, delta_dist, alpha, beta, gamma, unlabeled_push_weight, instance_term_weight,
