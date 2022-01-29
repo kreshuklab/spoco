@@ -57,8 +57,9 @@ def load_labels(raw_files, annotations_base, class_id):
             inst_img = unique_ids.reshape(inst_img.shape)
             # make labels unique across images
             inst_img[inst_img > 0] += max_id
-            # update max_id
-            max_id = inst_img.max()
+            if inst_img.max() > 0:
+                # update max_id
+                max_id = inst_img.max()
             labeled_imgs.append(inst_img)
         else:
             # image does not contain objects of the given class
