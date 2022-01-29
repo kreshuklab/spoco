@@ -1,12 +1,16 @@
 import argparse
-
-from tqdm import tqdm
 import os
+
 import imageio
 import numpy as np
+from tqdm import tqdm
 
 from spoco.datasets.cityscapes import CLASS_NAMES, CLASS_MAP
 from spoco.transforms import Relabel
+
+THINGS = ['bicycle', 'bus', 'car', 'motorcycle', 'person', 'rider', 'train', 'truck']
+
+THINGS_IDS = [CLASS_MAP[cn] for cn in THINGS]
 
 
 def traverse_dir(root_dir, suffix=""):
@@ -36,10 +40,18 @@ def load_labels(raw_files, annotations_base, class_id):
         )
         lbl_img = np.array(imageio.imread(lbl_path))
         unique = np.unique(lbl_img)
-        if class_id in unique:
+        if class_id is None or class_id in unique:
             inst_img = np.array(imageio.imread(inst_path))
             inst_img = inst_img.astype('uint32')
-            inst_img[lbl_img != class_id] = 0
+            if class_id is None:
+                # leave 'things' and remove 'stuff'
+                tmp_img = np.zeros_like(inst_img)
+                for cid in THINGS_IDS:
+                    tmp_img[lbl_img == cid] = inst_img[lbl_img == cid]
+                inst_img = tmp_img
+            else:
+                # leave only the class_id objects
+                inst_img[lbl_img != class_id] = 0
             # relabel
             _, unique_ids = np.unique(inst_img, return_inverse=True)
             inst_img = unique_ids.reshape(inst_img.shape)
@@ -109,20 +121,25 @@ def save_labeled_images(raw_files, labeled_imgs, annotations_base, class_name, i
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--base_dir', type=str, help='path to base dir', required=True)
-    parser.add_argument('--class_names', nargs="+", type=str, help='class names', required=True)
+    parser.add_argument('--class_names', nargs="+", type=str, help='class names', default=None)
 
     args = parser.parse_args()
 
-    for class_name in args.class_names:
-        assert class_name in CLASS_NAMES
+    if args.class_names is not None:
+        for class_name in args.class_names:
+            assert class_name in CLASS_NAMES
+        class_names = args.class_names
+    else:
+        class_names = [None]
 
     for phase in ['train', 'val', 'test']:
         annotations_base = os.path.join(args.base_dir, 'gtFine', phase)
         images_base = os.path.join(args.base_dir, 'leftImg8bit', phase)
         raw_files = traverse_dir(images_base, suffix='.png')
-        for class_name in args.class_names:
-            print(f'Loading annotations from {annotations_base}, class {class_name}')
-            labeled_imgs, max_id = load_labels(raw_files, annotations_base, CLASS_MAP[class_name])
+        for class_name in class_names:
+            class_id = CLASS_MAP.get(class_name)
+            print(f'Loading annotations from {annotations_base}, class: {class_name}, class_id: {class_id}')
+            labeled_imgs, max_id = load_labels(raw_files, annotations_base, class_id)
             for instance_ratio in ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']:
                 # skip validation images sampling
                 if phase in ['val', 'test'] and instance_ratio != '1.0':
@@ -138,6 +155,8 @@ if __name__ == '__main__':
                     continue
 
                 # save raw files
+                if class_name is None:
+                    class_name = 'all'
                 file_list = os.path.join(images_base, f'{class_name}_{instance_ratio}.txt')
                 with open(file_list, mode='wt') as f:
                     f.write('\n'.join(sampled_raw_files))

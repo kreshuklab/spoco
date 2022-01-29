@@ -64,8 +64,7 @@ TEST_RAW_TRANSFORM = transforms.Compose(
     [
         transforms.Resize(size=(384, 768)),
         transforms.ToTensor(),
-        ImgNormalize(mean=[0.485, 0.456, 0.406],
-                     std=[0.229, 0.224, 0.225])
+        ImgNormalize()
 
     ]
 )
@@ -95,8 +94,7 @@ EXTENDED_TRANSFORM = transforms.Compose(
         transforms.RandomGrayscale(p=0.2),
         GaussianBlur([.1, 2.]),
         transforms.ToTensor(),
-        ImgNormalize(mean=[0.485, 0.456, 0.406],
-                     std=[0.229, 0.224, 0.225])
+        ImgNormalize()
     ]
 )
 
@@ -106,8 +104,9 @@ class CityscapesDataset:
         assert phase in ['train', 'val', 'test']
         self.root_dir = root_dir
         self.phase = phase
+        if class_name is None:
+            class_name = 'all'
         self.class_name = class_name
-        self.class_id = CLASS_MAP[class_name]
         self.spoco = spoco
         self.img_normalize = transforms.Compose([
             transforms.ToTensor(),
