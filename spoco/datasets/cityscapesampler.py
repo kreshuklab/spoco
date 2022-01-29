@@ -140,8 +140,7 @@ if __name__ == '__main__':
             class_id = CLASS_MAP.get(class_name)
             print(f'Loading annotations from {annotations_base}, class: {class_name}, class_id: {class_id}')
             labeled_imgs, max_id = load_labels(raw_files, annotations_base, class_id)
-            # for instance_ratio in ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']:
-            for instance_ratio in ['0.8', '1.0']:
+            for instance_ratio in ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']:
                 # skip validation images sampling
                 if phase in ['val', 'test'] and instance_ratio != '1.0':
                     continue
