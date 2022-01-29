@@ -728,9 +728,8 @@ class SpocoContrastiveLoss(AbstractContrastiveLoss):
 
 class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
     def __init__(self, delta_var, delta_dist, instance_loss, kernel_threshold, norm='fro', alpha=1., beta=1.,
-                 gamma=0.001,
-                 instance_term_weight=1., unlabeled_push_weight=1., ignore_label=None, bg_push=True, hinge_pull=True,
-                 aux_loss_ignore_zero=True, joint_loss=False, consistency_weight=1.0, max_anchors=20,
+                 gamma=0.001, instance_term_weight=1., unlabeled_push_weight=1., ignore_label=None, bg_push=True,
+                 hinge_pull=True, aux_loss_ignore_zero=True, joint_loss=False, consistency_weight=1.0, max_anchors=20,
                  volume_threshold=0.05, consistency_only=False, **kwargs):
 
         super().__init__(delta_var, delta_dist, instance_loss, kernel_threshold, norm, alpha, beta, gamma,
@@ -836,17 +835,15 @@ class CombinedAuxLoss(nn.Module):
         return result
 
 
-def create_loss(delta_var, delta_dist,
-                alpha, beta, gamma,
-                unlabeled_push_weight, instance_term_weight,
-                consistency_weight, kernel_threshold,
-                instance_loss):
+def create_loss(delta_var, delta_dist, alpha, beta, gamma, unlabeled_push_weight, instance_term_weight,
+                consistency_weight, kernel_threshold, instance_loss, spoco):
     """
     Creates an instance of the embedding loss based on the parameters provided.
     If `unlabeled_push_weight` is set to zero ContrastiveLos or SpocoContrastiveLoss (if `instance_term_weight`
     is greater than 0) is returned, otherwise the SpocoConsistencyContrastiveLoss (sparse setting) is returned.
 
     Args:
+        spoco: use spoco setting
         delta_var: pull force hinge
         delta_dist: push force hinge
         alpha: pull force weight
@@ -865,8 +862,17 @@ def create_loss(delta_var, delta_dist,
     assert delta_var > 0
     assert delta_dist > 0
 
-    if unlabeled_push_weight == 0:
-        # no unlabeled region, so it's a standard ContrastiveLoss (or ContrastiveLoss with instance-based term)
+    if spoco:
+        bg_push = unlabeled_push_weight > 0
+        print('Unlabeled push: ', bg_push)
+        return SpocoConsistencyContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,
+                                               alpha=alpha, beta=beta, gamma=gamma,
+                                               instance_loss=instance_loss, kernel_threshold=kernel_threshold,
+                                               unlabeled_push_weight=unlabeled_push_weight,
+                                               instance_term_weight=instance_term_weight,
+                                               consistency_term_weight=consistency_weight,
+                                               bg_push=bg_push)
+    else:
         if instance_term_weight > 0:
             return SpocoContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,
                                         alpha=alpha, beta=beta, gamma=gamma,
@@ -876,11 +882,3 @@ def create_loss(delta_var, delta_dist,
         else:
             return ContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,
                                    alpha=alpha, beta=beta, gamma=gamma)
-    else:
-        # unlabeled push weight defined: 0-label corresponds to the unlabeled region, we're in a sparse setting
-        return SpocoConsistencyContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,
-                                               alpha=alpha, beta=beta, gamma=gamma,
-                                               unlabeled_push_weight=unlabeled_push_weight,
-                                               instance_term_weight=instance_term_weight,
-                                               consistency_term_weight=consistency_weight,
-                                               instance_loss=instance_loss, kernel_threshold=kernel_threshold)

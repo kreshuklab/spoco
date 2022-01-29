@@ -12,6 +12,7 @@ from spoco.model import create_model
 parser = argparse.ArgumentParser(description='SPOCO predict')
 
 # dataset config
+parser.add_argument('--spoco', action='store_true', default=False, help="Indicate SPOCO prediction to the loaders")
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')

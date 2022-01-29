@@ -55,15 +55,16 @@ parser.add_argument('--learning-rate', type=float, default=0.0002, help="Initial
 parser.add_argument('--weight-decay', type=float, default=0.00001, help="Weight decay regularization")
 parser.add_argument('--betas', type=float, nargs="+", default=[0.9, 0.999], help="Adam optimizer params")
 parser.add_argument('--schedule', type=int, nargs="+", help="Multistep LR schedule")
-parser.add_argument('--cos', action='store_true', help="Use cosine learning rate scheduler")
+parser.add_argument('--cos', action='store_true', default=False, help="Use cosine learning rate scheduler")
 
 # trainer config
-parser.add_argument('--spoco', action='store_true', help="Indicate SPOCO training with consistency loss")
+parser.add_argument('--spoco', action='store_true', default=False, help="Indicate SPOCO training with consistency loss")
 parser.add_argument('--checkpoint-dir', type=str, required=True, help="Model and tensorboard logs directory")
 parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")
-parser.add_argument('--max-num-iterations', type=int, required=True, help="Maximum number of iterations")
-parser.add_argument('--max-num-epochs', type=int, required=True, help="Maximum number of epochs")
+parser.add_argument('--max-num-iterations', type=int, default=None, help="Maximum number of iterations")
+parser.add_argument('--max-num-epochs', type=int, default=None, help="Maximum number of epochs")
+parser.add_argument('--max-num-validations', type=int, default=None, help="Maximum number of validations")
 
 # distributed settings
 parser.add_argument('--nodes', default=1, type=int, help='number of nodes for distributed training')
@@ -108,6 +109,7 @@ def train(gpu, args):
 
 def main():
     args = parser.parse_args()
+    print('ARGS:', args)
 
     if not torch.cuda.is_available():
         raise RuntimeError('Only GPU training is supported')
