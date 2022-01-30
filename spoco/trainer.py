@@ -206,8 +206,10 @@ class SpocoTrainer(AbstractTrainer):
                     val_losses.update(loss.item(), im_f.size(0))
 
                     if self.rank == 0:
-                        self.writer.add_scalar('val_loss_avg', val_losses.avg, self.num_iterations)
                         self.log_images(im_f, target, emb_f, prefix=f'val_{i}_', log_probab=log_probab)
+
+                if self.rank == 0:
+                    self.writer.add_scalar('val_loss_avg', val_losses.avg, self.num_iterations)
 
                 print(f'Validation finished. Loss: {val_losses.avg}')
                 return val_losses.avg
@@ -266,7 +268,8 @@ class UNetTrainer(AbstractTrainer):
                 if self.rank == 0:
                     self.log_images(input, target, output, prefix=f'val_{i}_', log_probab=log_probab)
 
-            self.writer.add_scalar('val_loss_avg', val_losses.avg, self.num_iterations)
-            print(f'Validation finished. Loss: {val_losses.avg}')
+            if self.rank == 0:
+                self.writer.add_scalar('val_loss_avg', val_losses.avg, self.num_iterations)
 
+            print(f'Validation finished. Loss: {val_losses.avg}')
             return val_losses.avg
