@@ -64,7 +64,6 @@ parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")
 parser.add_argument('--max-num-iterations', type=int, default=None, help="Maximum number of iterations")
 parser.add_argument('--max-num-epochs', type=int, default=None, help="Maximum number of epochs")
-parser.add_argument('--max-num-validations', type=int, default=None, help="Maximum number of validations")
 
 # distributed settings
 parser.add_argument('--nodes', default=1, type=int, help='number of nodes for distributed training')

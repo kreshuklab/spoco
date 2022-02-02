@@ -2,6 +2,7 @@ import math
 import os
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 from skimage.color import label2rgb
@@ -11,7 +12,6 @@ from spoco.datasets.utils import create_train_val_loaders
 from spoco.losses import create_loss
 from spoco.model import create_model, get_number_of_learnable_parameters, UNet3D
 from spoco.utils import RunningAverage, save_checkpoint, create_optimizer, pca_project, minmax_norm
-import numpy as np
 
 
 class AbstractTrainer:
@@ -47,17 +47,14 @@ class AbstractTrainer:
         assert self.max_num_iterations is not None or self.max_num_epochs is not None
 
         if self.max_num_epochs is None:
-            self.max_num_epochs = args.batch_size * self.max_num_iterations // len(self.train_loader.dataset) + 1
+            self.max_num_epochs = torch.cuda.device_count() * args.batch_size * self.max_num_iterations // len(
+                self.train_loader.dataset) + 1
             print('Computed max number of epochs:', self.max_num_epochs)
 
         if self.max_num_iterations is None:
-            self.max_num_iterations = self.max_num_epochs * len(self.train_loader.dataset) // args.batch_size
+            self.max_num_iterations = self.max_num_epochs * len(self.train_loader.dataset) // (
+                    args.batch_size * torch.cuda.device_count())
             print('Computed max number of iterations:', self.max_num_iterations)
-
-        if args.max_num_validations is None:
-            self.val_every_epochs = 1
-        else:
-            self.val_every_epochs = max(1, self.max_num_epochs // args.max_num_validations)
 
         self.log_after_iters = args.log_after_iters
         self.num_iterations = 0
@@ -86,34 +83,36 @@ class AbstractTrainer:
             self.train_loader.sampler.set_epoch(epoch)
             self.val_loader.sampler.set_epoch(epoch)
             self.adjust_learning_rate(epoch)
+            if self.rank == 0:
+                lr = self.optimizer.param_groups[0]['lr']
+                self.writer.add_scalar('learning_rate', lr, self.num_iterations)
 
             # train for one epoch
             should_stop = self.train_epoch()
 
-            if epoch % self.val_every_epochs == 0:
-                # evaluate on the validation set
-                self.model.eval()
-                validation_loss = self.validate()
-                self.model.train()
-                # save checkpoint
-                is_best = validation_loss < self.best_validation_loss
-                if is_best:
-                    self.best_validation_loss = validation_loss
+            # evaluate on the validation set
+            self.model.eval()
+            validation_loss = self.validate()
+            self.model.train()
+            # save checkpoint
+            is_best = validation_loss < self.best_validation_loss
+            if is_best:
+                self.best_validation_loss = validation_loss
 
-                if self.rank == 0:
-                    checkpoint_file = os.path.join(self.checkpoint_dir, 'checkpoint_{:05d}.pytorch'.format(epoch))
-                    save_checkpoint(
-                        {
-                            'epoch': epoch + 1,
-                            'num_iterations': self.num_iterations,
-                            'model_state_dict': self.model.state_dict(),
-                            'best_validation_loss': self.best_validation_loss,
-                            'optimizer': self.optimizer.state_dict()
-                        },
-                        is_best=is_best,
-                        filename=checkpoint_file
-                    )
-                    print(f'Checkpoint saved: {checkpoint_file}. Best: {is_best}')
+            if self.rank == 0:
+                checkpoint_file = os.path.join(self.checkpoint_dir, 'checkpoint_{:05d}.pytorch'.format(epoch))
+                save_checkpoint(
+                    {
+                        'epoch': epoch + 1,
+                        'num_iterations': self.num_iterations,
+                        'model_state_dict': self.model.state_dict(),
+                        'best_validation_loss': self.best_validation_loss,
+                        'optimizer': self.optimizer.state_dict()
+                    },
+                    is_best=is_best,
+                    filename=checkpoint_file
+                )
+                print(f'Checkpoint saved: {checkpoint_file}. Best: {is_best}')
 
             if should_stop:
                 print('Training finished!')
