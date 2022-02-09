@@ -39,7 +39,6 @@ python spoco_train.py \
     --instance-ratio 0.1 \
     --batch-size 4  \
     --model-name UNet2D \
-    --model-layer-order bcr \
     --model-feature-maps 16 32 64 128 256 512 \ 
     --learning-rate 0.0002 \
     --weight-decay 0.00001 \
@@ -95,19 +94,28 @@ Create random samplings of each class using the [cityscapesampler.py](spoco/data
 ```bash
 python spoco/datasets/cityscapesampler.py --base_dir CITYSCAPES_ROOT_DIR --class_names person rider car truck bus train motorcycle bicycle 
 ```
-this will randomly sample 10%, 20%, ..., 90% of objects from the specified class and save the results in dedicated directories,
+this will randomly sample 10%, 20%, ..., 90% of objects from the specified class(es) and save the results in dedicated directories,
 e.g. `CITYSCAPES_ROOT_DIR/gtFine/train/darmstadt/car/0.4` will contain random 40% of objects of class `car`.
 
-In order to train with 40% of randomly selected objects of class car, run:
+One can also sample from all of the objects (people, riders, cars, trucks, buses, trains, motorcycles, bicycles) collectively by simply:
+```bash
+python spoco/datasets/cityscapesampler.py --base_dir CITYSCAPES_ROOT_DIR 
+```
+this will randomly sample 10%, 20%, ..., 90% of **all** objects and save the results in dedicated directories,
+e.g. `CITYSCAPES_ROOT_DIR/gtFine/train/darmstadt/all/0.4` will contain random 40% of all objects.
+
+In order to train with 40% of randomly selected objects of class `car`, run:
 ```bash
 python spoco_train.py \
     --spoco \
-    --ds-name cityscapes --ds-path CITYSCAPES_ROOT_DIR --things-class car \
+    --ds-name cityscapes 
+    --ds-path CITYSCAPES_ROOT_DIR \
+    --things-class car \
     --instance-ratio 0.4 \
     --batch-size 16  \
     --model-name UNet2D \
-    --model-layer-order bcr \
-    --model-feature-maps 16 32 64 128 256 512 \ 
+    --model-feature-maps 16 32 64 128 256 512 \
+    --model-out-channels 8 \
     --learning-rate 0.001 \
     --weight-decay 0.00001 \
     --cos \
@@ -121,14 +129,16 @@ python spoco_train.py \
     --log-after-iters 500  --max-num-iterations 90000 
 ```
 
+In order to train with a random 40% of all ground truth objects, just remove the `--things-class` argument from the command above.
+
 ## Prediction
 Give a model trained on the CVPPP dataset, run the prediction using the following command:
 ```bash
 python spoco_predict.py \
-    --ds-name cvppp --ds-path CVPPP_ROOT_DIR --batch-size 4 \ 
+    --ds-name cvppp --ds-path CVPPP_ROOT_DIR \
+    --batch-size 4 \ 
     --model-path MODEL_DIR/best_checkpoint.pytorch \
     --model-name UNet2D \
-    --model-layer-order bcr \
     --model-feature-maps 16 32 64 128 256 512 \
     --output-dir OUTPUT_DIR
 ```
@@ -145,8 +155,8 @@ python spoco_predict.py \
     --batch-size 16 \ 
     --model-path MODEL_DIR/best_checkpoint.pytorch \
     --model-name UNet2D \
-    --model-layer-order bcr \
     --model-feature-maps 16 32 64 128 256 512 \
+    --model-out-channels 8 \
     --output-dir OUTPUT_DIR
 ```
 

@@ -1,13 +1,13 @@
 import argparse
-
 import os
+
 import torch
 from torch import nn
 
 from spoco.datasets.utils import create_test_loader
-from spoco.predictor import create_predictor
-from spoco.utils import SUPPORTED_DATASETS, load_checkpoint
 from spoco.model import create_model
+from spoco.predictor import EmbeddingsPredictor
+from spoco.utils import SUPPORTED_DATASETS, load_checkpoint
 
 parser = argparse.ArgumentParser(description='SPOCO predict')
 
@@ -16,10 +16,6 @@ parser.add_argument('--spoco', action='store_true', default=False, help="Indicat
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')
-parser.add_argument('--save-gt', action='store_true', help="Save ground truth segmentation in the output")
-parser.add_argument('--things-class', type=str,
-                    help='(Optional. For saving ground truth only) Cityscapes instance class. If None, train with all things classes',
-                    default=None)
 parser.add_argument('--batch-size', type=int, default=4)
 parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--output-dir', type=str, default='.', help='Directory where prediction are to be saved')
@@ -29,7 +25,7 @@ parser.add_argument('--model-name', type=str, default="UNet2D", help="UNet2D or 
 parser.add_argument('--model-path', type=str, required=True, help="Path to the model's checkpoint")
 parser.add_argument('--model-in-channels', type=int, default=3)
 parser.add_argument('--model-out-channels', type=int, default=16, help="Embedding space dimension")
-parser.add_argument('--model-feature-maps', type=int, nargs="+", default=[32, 64, 128, 256, 512],
+parser.add_argument('--model-feature-maps', type=int, nargs="+", default=[16, 32, 64, 128, 256, 512],
                     help="Number of features at each level on the encoder path")
 parser.add_argument('--model-layer-order', type=str, default="bcr",
                     help="Determines the order of operations for SingleConv layer; 'bcr' means Batchnorm+Conv+ReLU")
@@ -62,7 +58,7 @@ def main():
     test_loader = create_test_loader(args)
 
     # crete predictor
-    predictor = create_predictor(model, test_loader, output_dir, args)
+    predictor = EmbeddingsPredictor(model, test_loader, output_dir, args.spoco)
     # run inference
     predictor.predict()
 

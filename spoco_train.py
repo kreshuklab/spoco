@@ -28,7 +28,7 @@ parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--model-name', type=str, default="UNet2D", help="UNet2D or UNet3D")
 parser.add_argument('--model-in-channels', type=int, default=3)
 parser.add_argument('--model-out-channels', type=int, default=16, help="Embedding space dimension")
-parser.add_argument('--model-feature-maps', type=int, nargs="+", default=[32, 64, 128, 256, 512],
+parser.add_argument('--model-feature-maps', type=int, nargs="+", default=[16, 32, 64, 128, 256, 512],
                     help="Number of features at each level on the encoder path")
 parser.add_argument('--model-layer-order', type=str, default="bcr",
                     help="Determines the order of operations for SingleConv layer; 'bcr' means Batchnorm+Conv+ReLU")
