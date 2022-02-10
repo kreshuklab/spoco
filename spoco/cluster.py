@@ -73,13 +73,42 @@ def cluster_ms(emb, bandwidth, semantic_mask=None):
     clustering = MeanShift(bandwidth=bandwidth, bin_seeding=True)
     return cluster(emb, clustering, semantic_mask)
 
+def cluster_ms_plus(emb, bandwidth, delta_dist, semantic_mask):
+    clustering = MeanShift(bandwidth=bandwidth, bin_seeding=True, n_jobs=1, min_bin_freq=1)
+    clusters = cluster(emb, clustering, semantic_mask).astype('uint32')
+    unique, counts = np.unique(clusters, return_counts=True)
+    # sort by counts descending
+    counts, unique = zip(*sorted(zip(counts, unique), reverse=True))
+    anchors = []
+    labels = []
+    # iterate over the labels, except 0
+    for u in unique[1:]:
+        inst_mask = clusters == u
+        # compute the cluster mean
+        mean_embedding = np.sum(emb * inst_mask, axis=(1, 2)) / inst_mask.sum()
 
-def cluster_consistency(emb1, emb2, eps, iou_threshold, num_anchors=100):
+        is_instance = True
+        if anchors:
+            dist = LA.norm(np.array(anchors) - mean_embedding, axis=1)
+            ind = np.argmin(dist)
+            if dist[ind] < delta_dist:
+                clusters[inst_mask] = labels[ind]
+                is_instance = False
+
+        if is_instance:
+            anchors.append(mean_embedding)
+            labels.append(u)
+
+    return clusters
+
+
+
+def cluster_consistency(emb1, emb2, bandwidth, iou_threshold, num_anchors=100, semantic_mask=None):
     """
     Consistency clustering as described in https://arxiv.org/abs/2103.14572
     """
-    clustering = MeanShift(bandwidth=eps, bin_seeding=True)
-    clusters = cluster(emb1, clustering)
+    clustering = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+    clusters = cluster(emb1, clustering, semantic_mask)
 
     for l in np.unique(clusters):
         if l == 0:
@@ -94,7 +123,7 @@ def cluster_consistency(emb1, emb2, eps, iou_threshold, num_anchors=100):
             anchor_emb = emb2[:, y[ind], x[ind]]
             anchor_emb = anchor_emb[:, None, None]
             # compute the instance mask from emb2
-            inst_mask = LA.norm(emb2 - anchor_emb, axis=0) < eps
+            inst_mask = LA.norm(emb2 - anchor_emb, axis=0) < bandwidth
             iou_table.append(iou(mask, inst_mask))
 
         median_iou = np.median(iou_table)
