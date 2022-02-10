@@ -2,16 +2,12 @@ import math
 import os
 import shutil
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.decomposition import PCA
 from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
-plt.ioff()
-plt.switch_backend('agg')
 
 SUPPORTED_DATASETS = ['cvppp', 'cityscapes', 'ovules', 'mitoem', 'stem']
 

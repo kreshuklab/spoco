@@ -71,8 +71,7 @@ DEFAULT_RAW_TRANSFORM = transforms.Compose(
             GaussianBlur([.1, 2.])
         ], p=0.5),
         transforms.ToTensor(),
-        ImgNormalize(mean=[0.485, 0.456, 0.406],
-                     std=[0.229, 0.224, 0.225])
+        ImgNormalize()
     ]
 )
 
@@ -95,8 +94,7 @@ EXTENDED_TRANSFORM = transforms.Compose(
             GaussianBlur([.1, 2.])
         ], p=0.5),
         transforms.ToTensor(),
-        ImgNormalize(mean=[0.485, 0.456, 0.406],
-                     std=[0.229, 0.224, 0.225])
+        ImgNormalize()
     ]
 )
 
@@ -106,8 +104,7 @@ SPOCO_TEST = transforms.Compose(
         transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
         GaussianBlur([.1, 2.]),
         transforms.ToTensor(),
-        ImgNormalize(mean=[0.485, 0.456, 0.406],
-                     std=[0.229, 0.224, 0.225])
+        ImgNormalize()
     ]
 )
 
@@ -155,8 +152,7 @@ class CVPPP2017Dataset:
             [
                 transforms.Resize(size=(448, 448)),
                 transforms.ToTensor(),
-                ImgNormalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
+                ImgNormalize()
             ]
         )
 
