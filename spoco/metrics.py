@@ -206,13 +206,59 @@ class AveragePrecision:
     https://www.kaggle.com/stkbailey/step-by-step-explanation-of-scoring-metric
     """
 
-    def __init__(self):
-        self.iou_range = np.linspace(0.50, 0.95, 10)
+    def __init__(self, iou=None):
+        if iou is not None:
+            self.iou_range = [iou]
+        else:
+            self.iou_range = np.linspace(0.50, 0.95, 10)
 
     def __call__(self, input_seg, gt_seg):
+        if len(np.unique(gt_seg)) == 1:
+            return 1.
+
         # compute contingency_table
         sm = SegmentationMetrics(gt_seg, input_seg)
         # compute accuracy for each threshold
         acc = [sm.metrics(iou)['accuracy'] for iou in self.iou_range]
         # return the average
         return np.mean(acc)
+
+
+def dice_score(gt, seg, smooth=1.):
+    gt = gt > 0
+    seg = seg > 0
+    nom = 2 * np.sum(gt * seg)
+    denom = np.sum(gt) + np.sum(seg)
+
+    dice = float(nom + smooth) / float(denom + smooth)
+    return dice
+
+
+class DiceScore:
+    def __call__(self, gt, seg, smooth=1.):
+        return dice_score(gt, seg)
+
+
+def best_dice(gt, seg):
+    gt_lables = np.setdiff1d(np.unique(gt), [0])
+    seg_labels = np.setdiff1d(np.unique(seg), [0])
+
+    best_dices = []
+    for gt_idx in gt_lables:
+        _gt_seg = (gt == gt_idx).astype('uint8')
+        dices = []
+        for pred_idx in seg_labels:
+            _pred_seg = (seg == pred_idx).astype('uint8')
+
+            dice = dice_score(_gt_seg, _pred_seg)
+            dices.append(dice)
+        best_dice = np.max(dices)
+        best_dices.append(best_dice)
+
+    return np.mean(best_dices)
+
+
+def symmetric_best_dice(gt, seg):
+    bd1 = best_dice(gt, seg)
+    bd2 = best_dice(seg, gt)
+    return min(bd1, bd2)
