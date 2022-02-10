@@ -14,7 +14,7 @@
    version="1.1"
    id="svg8"
    inkscape:version="1.0.1 (1.0.1+r75)"
-   sodipodi:docname="Figure1_new.svg">
+   sodipodi:docname="Figure2.svg">
   <defs
      id="defs2">
     <marker
@@ -673,19 +673,19 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="1.8101934"
-     inkscape:cx="345.63271"
-     inkscape:cy="-23.976059"
+     inkscape:zoom="2.5600001"
+     inkscape:cx="292.46072"
+     inkscape:cy="153.82721"
      inkscape:document-units="mm"
      inkscape:current-layer="layer1"
      inkscape:document-rotation="0"
      showgrid="true"
      showguides="true"
      inkscape:guide-bbox="true"
-     inkscape:window-width="2560"
-     inkscape:window-height="1403"
-     inkscape:window-x="1920"
-     inkscape:window-y="0"
+     inkscape:window-width="1920"
+     inkscape:window-height="1043"
+     inkscape:window-x="0"
+     inkscape:window-y="1200"
      inkscape:window-maximized="1"
      inkscape:snap-global="true"
      inkscape:snap-bbox="false"
@@ -1049,7 +1049,7 @@
          style="font-size:2.11667px;text-align:center;text-anchor:middle;stroke-width:0.23151px"
          id="tspan358-2-2">predicted masks <tspan
    style="font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:sans-serif;-inkscape-font-specification:'sans-serif Italic'"
-   id="tspan4123">f</tspan></tspan><tspan
+   id="tspan224">g</tspan></tspan><tspan
          sodipodi:role="line"
          x="137.92204"
          y="96.732063"
@@ -1071,7 +1071,7 @@
          style="font-size:2.11667px;text-align:center;text-anchor:middle;stroke-width:0.23151px"
          id="tspan358-2-2-6">predicted masks <tspan
    style="font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:sans-serif;-inkscape-font-specification:'sans-serif Italic'"
-   id="tspan4125">g</tspan></tspan><tspan
+   id="tspan228">f</tspan></tspan><tspan
          sodipodi:role="line"
          x="165.01254"
          y="96.732063"
