@@ -164,11 +164,23 @@ python spoco_predict.py \
 To produce the final segmentation one needs to cluster the embeddings with and algorithm of choice. Supported
 algoritms: mean-shift, HDBSCAN and Consistency Clustering (as described in the paper). E.g. to cluster CVPPP with HDBSCAN, run:
 ```bash
-python cluster_predictions.py --ds-name cvppp \
+python cluster_predictions.py \ 
+    --ds-name cvppp \
     --emb-dir PREDICTION_DIR \
-    --output-dataset hdbscan_seg
     --clustering hdbscan --delta-var 0.5 --min-size 200 --remove-largest
 ```
 
 Where `PREDICTION_DIR` is the directory where h5 files containing network predictions are stored. Resulting segmentation
-will be saved as a separate dataset (named `hdbscan_seg` in this example) inside each of the H5 prediction files.
+will be saved as a separate dataset (named `segmentation`) inside each of the H5 prediction files.
+
+In order to cluster the Cityscapes predictions and extract the instances of class `car`:
+```bash
+python cluster_predictions.py \ 
+    --ds-name cityscapes \
+    --emb-dir PREDICTION_DIR \
+    --sem-dir SEM_PREDICTION_DIR \
+    --things-class car \
+    --clustering msplus --delta-var 0.5 --delta-dist 2.0
+```
+Where `SEM_PREDICTION_DIR` is the directory containing the semantic segmentation predictions for your validation/test images.
+We used pre-trained DeepLabv3 model from [here](https://github.com/VainF/DeepLabV3Plus-Pytorch).
