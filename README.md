@@ -135,6 +135,7 @@ In order to train with a random 40% of all ground truth objects, just remove the
 Give a model trained on the CVPPP dataset, run the prediction using the following command:
 ```bash
 python spoco_predict.py \
+    --spoco \
     --ds-name cvppp --ds-path CVPPP_ROOT_DIR \
     --batch-size 4 \ 
     --model-path MODEL_DIR/best_checkpoint.pytorch \
@@ -151,6 +152,7 @@ Results will be saved in the given `OUTPUT_DIR` directory. For each test input i
 And similarly for the Cityscapes dataset 
 ```bash
 python spoco_predict.py \
+    --spoco \
     --ds-name cityscapes --ds-path CITYSCAPES_ROOT_DIR \ 
     --batch-size 16 \ 
     --model-path MODEL_DIR/best_checkpoint.pytorch \
