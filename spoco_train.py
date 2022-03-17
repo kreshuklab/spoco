@@ -54,11 +54,12 @@ parser.add_argument('--kernel-threshold', type=float, default=0.5,
 parser.add_argument('--learning-rate', type=float, default=0.0002, help="Initial learning rate")
 parser.add_argument('--weight-decay', type=float, default=0.00001, help="Weight decay regularization")
 parser.add_argument('--betas', type=float, nargs="+", default=[0.9, 0.999], help="Adam optimizer params")
-parser.add_argument('--schedule', type=int, nargs="+", help="Multistep LR schedule")
+parser.add_argument('--schedule', type=float, nargs="+", help="Multistep LR schedule")
 parser.add_argument('--cos', action='store_true', default=False, help="Use cosine learning rate scheduler")
 
 # trainer config
 parser.add_argument('--spoco', action='store_true', default=False, help="Indicate SPOCO training with consistency loss")
+parser.add_argument('--save-all-checkpoints', action='store_true', default=False, help="Save checkpoint after every epoch")
 parser.add_argument('--checkpoint-dir', type=str, required=True, help="Model and tensorboard logs directory")
 parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")
