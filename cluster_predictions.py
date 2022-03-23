@@ -66,21 +66,20 @@ def load_cityscapes_ground_truth(base_dir, class_id, filename):
 
     lbl_img = np.array(imageio.imread(lbl_path))
     unique = np.unique(lbl_img)
-    if class_id in unique:
-        inst_img = np.array(imageio.imread(inst_path))
-        inst_img = inst_img.astype('uint32')
+    assert class_id in unique
 
-        # leave only the class_id objects
-        inst_img[lbl_img != class_id] = 0
-        # relabel
-        _, unique_ids = np.unique(inst_img, return_inverse=True)
-        inst_img = unique_ids.reshape(inst_img.shape)
-        # resize
-        inst_img = resize(inst_img, output_shape=(384, 768), order=0, preserve_range=True, anti_aliasing=False).astype(
-            'int64')
-        return inst_img
+    inst_img = np.array(imageio.imread(inst_path))
+    inst_img = inst_img.astype('uint32')
 
-    return None
+    # leave only the class_id objects
+    inst_img[lbl_img != class_id] = 0
+    # relabel
+    _, unique_ids = np.unique(inst_img, return_inverse=True)
+    inst_img = unique_ids.reshape(inst_img.shape)
+    # resize
+    inst_img = resize(inst_img, output_shape=(384, 768), order=0, preserve_range=True, anti_aliasing=False) \
+        .astype('int64')
+    return inst_img
 
 
 def process_cityscapes_sem_mask(sem_filepath, class_name, size=(384, 768)):
