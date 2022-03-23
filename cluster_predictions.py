@@ -24,7 +24,7 @@ parser.add_argument('--gt-dir', type=str, default=None,
 parser.add_argument('--emb-dir', type=str, help='Path to embedding predictions directory', required=True)
 parser.add_argument('--things-class', type=str, help='Cityscapes semantic class', default=None)
 parser.add_argument('--sem-dir', type=str, default=None,
-                    help='Path to semantic segmentation predictions directory (optional)')
+                    help='Path to semantic segmentation predictions directory')
 parser.add_argument('--clustering', type=str, help='Clustering algorithm: ms/msplus/hdbscan/consistency', required=True)
 parser.add_argument('--delta-var', type=float, help='Pull force hinge', default=0.5)
 parser.add_argument('--delta-dist', type=float, help='Push force hinge', default=2.0)
@@ -205,7 +205,7 @@ class CityscapesClustering(AbstractClustering):
         return ap(clusters, gt)
 
     def load_semantic_mask(self, pred_file):
-        return load_cityscapes_sem_mask(self.args.gt_dir, pred_file, self.args.things_class,
+        return load_cityscapes_sem_mask(self.args.sem_dir, pred_file, self.args.things_class,
                                         self.args.min_size)
 
     def load_groundtruth(self, pred_file):
