@@ -66,20 +66,21 @@ def load_cityscapes_ground_truth(base_dir, class_id, filename):
 
     lbl_img = np.array(imageio.imread(lbl_path))
     unique = np.unique(lbl_img)
-    assert class_id in unique
+    if class_id in unique:
+        inst_img = np.array(imageio.imread(inst_path))
+        inst_img = inst_img.astype('uint32')
 
-    inst_img = np.array(imageio.imread(inst_path))
-    inst_img = inst_img.astype('uint32')
+        # leave only the class_id objects
+        inst_img[lbl_img != class_id] = 0
+        # relabel
+        _, unique_ids = np.unique(inst_img, return_inverse=True)
+        inst_img = unique_ids.reshape(inst_img.shape)
+        # resize
+        inst_img = resize(inst_img, output_shape=(384, 768), order=0, preserve_range=True, anti_aliasing=False).astype(
+            'int64')
+        return inst_img
 
-    # leave only the class_id objects
-    inst_img[lbl_img != class_id] = 0
-    # relabel
-    _, unique_ids = np.unique(inst_img, return_inverse=True)
-    inst_img = unique_ids.reshape(inst_img.shape)
-    # resize
-    inst_img = resize(inst_img, output_shape=(384, 768), order=0, preserve_range=True, anti_aliasing=False) \
-        .astype('int64')
-    return inst_img
+    return None
 
 
 def process_cityscapes_sem_mask(sem_filepath, class_name, size=(384, 768)):
@@ -151,6 +152,8 @@ class AbstractClustering:
             # load ground truth if provided
             if self.args.gt_dir is not None:
                 gt = self.load_groundtruth(pred_file)
+                if gt is None:
+                    return None
                 # save gt into the prediction file
                 gt_ds = 'gt'
                 if self.args.things_class is not None:
