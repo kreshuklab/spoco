@@ -155,6 +155,8 @@ class AbstractClustering:
                 gt_ds = 'gt'
                 if self.args.things_class is not None:
                     gt_ds = 'gt_' + self.args.things_class
+                if gt_ds in f:
+                    del f[gt_ds]
                 f.create_dataset(gt_ds, data=gt, compression='gzip')
                 # return score
                 return self.segmentation_score(clusters, gt)
