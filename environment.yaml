@@ -2,10 +2,12 @@ name: spoco
 
 channels:
   - pytorch
+  - nvidia
   - conda-forge
 
 dependencies:
-  - python
+  - python 3.8
+  - tqdm
   - pytorch
   - torchvision
   - tensorboard
