@@ -25,8 +25,7 @@ class EmbeddingsPredictor:
                 if self.spoco:
                     img1, img2, path = t
                     # send batch to device
-                    img1.cuda()
-                    img2.cuda()
+                    img1, img2 = img1.cuda(), img2.cuda()
                     # forward pass
                     emb1, emb2 = self.model(img1, img2)
                     # iterate over the batch
@@ -35,7 +34,7 @@ class EmbeddingsPredictor:
                 else:
                     img, path = t
                     # send batch to device
-                    img.cuda()
+                    img = img.cuda()
                     # forward pass
                     emb = self.model(img)
                     # iterate over the batch
@@ -50,10 +49,10 @@ class EmbeddingsPredictor:
             # save PNG with PCA projected embeddings
             embeddings_numpy = np.squeeze(se.cpu().numpy())
             rgb_img = pca_project(embeddings_numpy)
-            Image.fromarray(np.rollaxis(rgb_img, 0, 3)).save(os.path.splitext(out_file)[0] + f'_{i+1}.png')
+            Image.fromarray(np.rollaxis(rgb_img, 0, 3)).save(os.path.splitext(out_file)[0] + f'_{i + 1}.png')
 
         with h5py.File(out_file, 'w') as f:
             print(f'Saving output to {out_file}')
             f.create_dataset('raw', data=img.cpu().numpy(), compression='gzip')
             for i, emb in enumerate(emb_arr):
-                f.create_dataset(f'embeddings{i+1}', data=emb.cpu().numpy(), compression='gzip')
+                f.create_dataset(f'embeddings{i + 1}', data=emb.cpu().numpy(), compression='gzip')

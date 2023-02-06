@@ -35,6 +35,8 @@ parser.add_argument('--remove-largest', help='Set largest instance to 0-label', 
 parser.add_argument('--iou-threshold', type=float, help='IoU threshold for consistency clustering', required=False,
                     default=0.6)
 parser.add_argument('--num-workers', type=int, help='Thread pool size', default=32)
+parser.add_argument('--score', action='store_true', default=False,
+                    help="Compute segmentation score if groundtruth provided")
 
 args = parser.parse_args()
 
@@ -149,8 +151,9 @@ class AbstractClustering:
             print(f'Saving segmentation results to: {pred_file}:{out_ds}')
             f.create_dataset(out_ds, data=clusters.astype('uint32'), compression='gzip')
 
-            # load ground truth if provided
-            if self.args.gt_dir is not None:
+            # compute segmentation score
+            if self.args.score:
+                assert self.args.gt_dir is not None, "Groundtruth required for score computation"
                 gt = self.load_groundtruth(pred_file)
                 if gt is None:
                     return None
@@ -195,7 +198,7 @@ class CvpppClustering(AbstractClustering):
         return img
 
     def load_semantic_mask(self, pred_file):
-        if self.args.sem_dir is not None:
+        if self.args.gt_dir is not None:
             return self._load_mask(pred_file, '_fg.png')
         return None
 
