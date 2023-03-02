@@ -167,7 +167,7 @@ class SpocoTrainer(AbstractTrainer):
             im_g = im_g.cuda(self.gpu, non_blocking=True)
             target = target.cuda(self.gpu, non_blocking=True)
 
-            # forward pass through SpocoUNet
+            # forward pass through SpocoNet
             emb_f, emb_g = self.model(im_f, im_g)
             emb_g = emb_g.detach()
 
@@ -203,7 +203,7 @@ class SpocoTrainer(AbstractTrainer):
                     im_g = im_g.cuda(self.gpu, non_blocking=True)
                     target = target.cuda(self.gpu, non_blocking=True)
 
-                    # forward pass through SpocoUNet
+                    # forward pass through SpocoNet
                     emb_f, emb_g = self.model(im_f, im_g)
                     # compute the loss
                     loss = self.loss((emb_f, emb_g), target)

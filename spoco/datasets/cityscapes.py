@@ -4,7 +4,7 @@ import random
 import numpy as np
 import torch
 from PIL import Image
-from torchvision.transforms import transforms
+from torchvision.transforms import transforms, InterpolationMode
 
 from spoco.transforms import ImgNormalize, Relabel, GaussianBlur
 
@@ -71,7 +71,7 @@ TEST_RAW_TRANSFORM = transforms.Compose(
 
 LABEL_TRANSFORM = transforms.Compose(
     [
-        transforms.RandomResizedCrop((384, 768), scale=(0.5, 2.), interpolation=0),
+        transforms.RandomResizedCrop((384, 768), scale=(0.5, 2.), interpolation=InterpolationMode.NEAREST),
         transforms.RandomHorizontalFlip(),
         Relabel(run_cc=False),
         transforms.ToTensor()
@@ -80,7 +80,7 @@ LABEL_TRANSFORM = transforms.Compose(
 
 TEST_LABEL_TRANSFORM = transforms.Compose(
     [
-        transforms.Resize(size=(384, 768), interpolation=Image.NEAREST),
+        transforms.Resize(size=(384, 768), interpolation=InterpolationMode.NEAREST),
         Relabel(run_cc=False),
         transforms.ToTensor()
     ]

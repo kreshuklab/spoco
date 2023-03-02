@@ -73,6 +73,7 @@ def cluster_ms(emb, bandwidth, semantic_mask=None):
     clustering = MeanShift(bandwidth=bandwidth, bin_seeding=True)
     return cluster(emb, clustering, semantic_mask)
 
+
 def cluster_ms_plus(emb, bandwidth, delta_dist, semantic_mask):
     clustering = MeanShift(bandwidth=bandwidth, bin_seeding=True, n_jobs=1, min_bin_freq=1)
     clusters = cluster(emb, clustering, semantic_mask).astype('uint32')
@@ -100,7 +101,6 @@ def cluster_ms_plus(emb, bandwidth, delta_dist, semantic_mask):
             labels.append(u)
 
     return clusters
-
 
 
 def cluster_consistency(emb1, emb2, bandwidth, iou_threshold, num_anchors=100, semantic_mask=None):

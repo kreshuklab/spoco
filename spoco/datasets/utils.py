@@ -8,6 +8,15 @@ from spoco.datasets.cvppp import CVPPP2017Dataset
 
 
 def create_train_val_loaders(args):
+    """
+    Creates train and validation data loaders.
+
+    Args:
+        args: command line arguments
+
+    Returns:
+        (train_loader, val_loader): train and validation data loaders
+    """
     if args.ds_name == 'cvppp':
         train_dataset = CVPPP2017Dataset(args.ds_path, phase='train', spoco=args.spoco,
                                          instance_ratio=args.instance_ratio, seed=args.manual_seed)
@@ -30,6 +39,14 @@ def create_train_val_loaders(args):
 
 
 def create_test_loader(args):
+    """
+    Creates test set data loader.
+    Args:
+        args: command line arguments
+
+    Returns:
+        test_loader: test set data loader
+    """
     if args.ds_name == 'cvppp':
         test_dataset = CVPPP2017Dataset(args.ds_path, phase='test', spoco=args.spoco)
     elif args.ds_name == 'cityscapes':
@@ -37,15 +54,11 @@ def create_test_loader(args):
     else:
         raise RuntimeError(f'Unsupported dataset {args.ds_name}')
 
-    if args.ds_name in ('cvppp', 'cityscapes'):
-        collate_fn = dsb_prediction_collate
-    else:
-        collate_fn = default_prediction_collate
-
-    return DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
+    return DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
+                      collate_fn=default_prediction_collate)
 
 
-def dsb_prediction_collate(batch):
+def default_prediction_collate(batch):
     """
     Forms a mini-batch of (images, paths) during test time for the DSB-like datasets.
     """
@@ -57,12 +70,12 @@ def dsb_prediction_collate(batch):
     elif isinstance(batch[0], collections.Sequence):
         # transpose tuples, i.e. [[1, 2], ['a', 'b']] to be [[1, 'a'], [2, 'b']]
         transposed = zip(*batch)
-        return [dsb_prediction_collate(samples) for samples in transposed]
+        return [default_prediction_collate(samples) for samples in transposed]
 
     raise TypeError((error_msg.format(type(batch[0]))))
 
 
-def default_prediction_collate(batch):
+def h5_prediction_collate(batch):
     """
     Default collate_fn to form a mini-batch of Tensor(s) for HDF5 based datasets
     """
@@ -73,6 +86,6 @@ def default_prediction_collate(batch):
         return batch
     elif isinstance(batch[0], collections.Sequence):
         transposed = zip(*batch)
-        return [default_prediction_collate(samples) for samples in transposed]
+        return [h5_prediction_collate(samples) for samples in transposed]
 
     raise TypeError((error_msg.format(type(batch[0]))))

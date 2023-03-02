@@ -1,7 +1,7 @@
 import argparse
 import os
 
-import imageio
+import imageio.v2 as imageio
 import numpy as np
 from tqdm import tqdm
 
@@ -122,7 +122,10 @@ def save_labeled_images(raw_files, labeled_imgs, annotations_base, class_name, i
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--base_dir', type=str, help='path to base dir', required=True)
-    parser.add_argument('--class_names', nargs="+", type=str, help='class names', default=None)
+    parser.add_argument('--class_names', nargs="+", type=str, help='things class names to sample from', default=None)
+    parser.add_argument('--instance_ratios', nargs="+", type=float,
+                        help='fraction of ground truth objects to sample. If not specified, [0.1, ..., 1.0] is used',
+                        default=None)
 
     args = parser.parse_args()
 
@@ -133,7 +136,12 @@ if __name__ == '__main__':
     else:
         class_names = [None]
 
-    for phase in ['train', 'val', 'test']:
+    if args.instance_ratios is None:
+        instance_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    else:
+        instance_ratios = args.instance_ratios
+
+    for phase in ['train', 'val']:
         annotations_base = os.path.join(args.base_dir, 'gtFine', phase)
         images_base = os.path.join(args.base_dir, 'leftImg8bit', phase)
         raw_files = traverse_dir(images_base, suffix='.png')
@@ -141,7 +149,7 @@ if __name__ == '__main__':
             class_id = CLASS_MAP.get(class_name)
             print(f'Loading annotations from {annotations_base}, class: {class_name}, class_id: {class_id}')
             labeled_imgs, max_id = load_labels(raw_files, annotations_base, class_id)
-            for instance_ratio in ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']:
+            for instance_ratio in instance_ratios:
                 # skip validation images sampling
                 if phase in ['val', 'test'] and instance_ratio != '1.0':
                     continue
@@ -150,8 +158,8 @@ if __name__ == '__main__':
                 rs = np.random.RandomState(47)
                 print(f'Sampling {ir * 100}% of instances of class: {class_name}')
 
-                sampled_raw_files, sampled_labeled_imgs = cityscapes_sample_instances(raw_files, labeled_imgs, max_id,
-                                                                                      ir, rs)
+                sampled_raw_files, sampled_labeled_imgs = \
+                    cityscapes_sample_instances(raw_files, labeled_imgs, max_id, ir, rs)
                 if sampled_raw_files is None:
                     continue
 

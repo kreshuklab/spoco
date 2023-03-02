@@ -1,15 +1,15 @@
-import math
-
 import numpy as np
 import torch
 from torch import nn as nn
 from torch.nn import BCELoss
 
+from spoco.utils import GaussianKernel
+
 
 def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     """
-    Computes DiceCoefficient as defined in https://arxiv.org/abs/1606.04797 given  a multi channel input and target.
-    Assumes the input is a normalized probability, e.g. a result of Sigmoid or Softmax function.
+    Computes DiceCoefficient as defined in https://arxiv.org/abs/1606.04797 given a multi-channel input and target.
+    Assumes that each input channel is a probability map where each pixel is in [0, 1] range.
 
     Args:
          input (torch.Tensor): NxCxSpatial input tensor
@@ -139,10 +139,10 @@ class _AbstractDiceLoss(nn.Module):
     def __init__(self, weight=None, normalization='sigmoid'):
         super(_AbstractDiceLoss, self).__init__()
         self.register_buffer('weight', weight)
-        # The output from the network during training is assumed to be un-normalized probabilities and we would
-        # like to normalize the logits. Since Dice (or soft Dice in this case) is usually used for binary data,
+        # The output from the network during training is assumed to be logits, so we need to normalize before the loss
+        # is computed. Since Dice (or soft Dice in this case) is usually used for binary data,
         # normalizing the channels with Sigmoid is the default choice even for multi-class segmentation problems.
-        # However if one would like to apply Softmax in order to get the proper probability distribution from the
+        # However, if one would like to apply Softmax in order to get the proper probability distribution from the
         # output, just specify `normalization=Softmax`
         assert normalization in ['sigmoid', 'softmax', 'none']
         if normalization == 'sigmoid':
@@ -180,20 +180,6 @@ class DiceLoss(_AbstractDiceLoss):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
-class BCEDiceLoss(nn.Module):
-    """Linear combination of BCE and Dice losses"""
-
-    def __init__(self, alpha, beta):
-        super(BCEDiceLoss, self).__init__()
-        self.alpha = alpha
-        self.bce = nn.BCEWithLogitsLoss()
-        self.beta = beta
-        self.dice = DiceLoss()
-
-    def forward(self, input, target):
-        return self.alpha * self.bce(input, target) + self.beta * self.dice(input, target)
-
-
 def flatten(tensor):
     """
     Flattens a given tensor such that the channel axis is first.
@@ -209,68 +195,56 @@ def flatten(tensor):
     return transposed.contiguous().view(C, -1)
 
 
-def expand_as_one_hot(input, C, ignore_index=None):
+def expand_as_one_hot(input, C):
     """
-    Converts NxSPATIAL label image to NxCxSPATIAL, where each label gets converted to its corresponding one-hot vector.
-    It is assumed that the batch dimension is present.
+    Converts a label image to CxSpatial, where each label gets converted to its corresponding one-hot vector.
     Args:
-        input (torch.Tensor): 3D/4D input image
+        input (torch.Tensor): 2D/3D label image
         C (int): number of channels/labels
-        ignore_index (int): ignore index to be kept during the expansion
     Returns:
-        output torch.Tensor of size (NxCxSPATIAL)
+        output torch.Tensor of size (CxSpatial)
     """
-    assert input.dim() > 2
+    assert input.dim() in [2, 3]
 
-    # expand the input tensor to Nx1xSPATIAL before scattering
-    input = input.unsqueeze(1)
-    # create output tensor shape (NxCxSPATIAL)
-    shape = list(input.size())
-    shape[1] = C
-
-    if ignore_index is not None:
-        # create ignore_index mask for the result
-        mask = input.expand(shape) == ignore_index
-        # clone the src tensor and zero out ignore_index in the input
-        input = input.clone()
-        input[input == ignore_index] = 0
-        # scatter to get the one-hot tensor
-        result = torch.zeros(shape).to(input.device).scatter_(1, input, 1)
-        # bring back the ignore_index in the result
-        result[mask] = ignore_index
-        return result
-    else:
-        # scatter to get the one-hot tensor
-        return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
+    # create output tensor shape (CxSPATIAL)
+    shape = (C,) + input.size()
+    # expand the input tensor to 1xSPATIAL before scattering
+    input = input.unsqueeze(0)
+    # scatter to get the one-hot tensor
+    return torch.zeros(shape).to(input.device).scatter_(0, input, 1)
 
 
 ################################################# embedding losses ####################################################
 
 def compute_cluster_means(embeddings, target, n_instances):
     """
-    Computes mean embeddings per instance, embeddings withing a given instance and the number of voxels per instance.
+    Computes `n_instances` mean embedding vectors for each instance in the target segmentation.
 
     C - number of instances
     E - embedding dimension
-    SPATIAL - volume shape, i.e. DxHxW for 3D/ HxW for 2D
+    SPATIAL - volume shape, i.e. DxHxW for 3D, HxW for 2D
 
     Args:
-        embeddings: tensor of pixel embeddings, shape: ExSPATIAL
-        target: one-hot encoded target instances, shape: CxSPATIAL
+        embeddings (torch.Tensor): ExSPATIAL tensor of pixel embeddings
+        target (torch.Tensor): SPATIAL tensor of instance labels
+        n_instances (int): number of instances
+
+    Returns:
+        tensor of shape CxE, where each row is the mean embedding of the corresponding instance
     """
-    target = expand_as_one_hot(target.unsqueeze(0), n_instances).squeeze(0)
+    # expand target as one-hot encoding
+    target = expand_as_one_hot(target, n_instances)
+    # expand target: CxSPATIAL -> Cx1xSPATIAL
     target = target.unsqueeze(1)
     spatial_ndim = embeddings.dim() - 1
     dim_arg = (2, 3) if spatial_ndim == 2 else (2, 3, 4)
-
-    embedding_dim = embeddings.size(0)
 
     # get number of pixels in each cluster; output: Cx1
     num_pixels = torch.sum(target, dim=dim_arg)
 
     # expand target: Cx1xSPATIAL -> CxExSPATIAL
     shape = list(target.size())
-    shape[1] = embedding_dim
+    shape[1] = embeddings.size(0)
     target = target.expand(shape)
 
     # expand input_: ExSPATIAL -> 1xExSPATIAL
@@ -289,13 +263,23 @@ def compute_cluster_means(embeddings, target, n_instances):
 
 class AbstractContrastiveLoss(nn.Module):
     """
-    Implementation of contrastive loss defined in https://arxiv.org/pdf/1708.02551.pdf
-    'Semantic Instance Segmentation with a Discriminative Loss Function'
+    Base class for the contrastive loss (defined in https://arxiv.org/pdf/1708.02551.pdf
+    'Semantic Instance Segmentation with a Discriminative Loss Function') and its variants.
+
+    Args:
+        delta_var (float): variance margin
+        delta_dist (float): distance margin
+        norm (str): norm to use for computing the distance between embeddings
+        alpha (float): weight for the variance term
+        beta (float): weight for the distance term
+        gamma (float): weight for the regularizer
+        instance_term_weight (float): weight for the instance term
+        unlabeled_push_weight (float): weight for the unlabeled push term
+        zero_label_push (bool): whether to push 0-labeled pixels away from the cluster centers
     """
 
     def __init__(self, delta_var, delta_dist, norm='fro', alpha=1., beta=1., gamma=0.001, instance_term_weight=1.,
-                 unlabeled_push_weight=1.,
-                 ignore_label=None, bg_push=False, hinge_pull=True):
+                 unlabeled_push_weight=1., ignore_label=None, zero_label_push=False):
         super().__init__()
         self.delta_var = delta_var
         self.delta_dist = delta_dist
@@ -306,8 +290,7 @@ class AbstractContrastiveLoss(nn.Module):
         self.instance_term_weight = instance_term_weight
         self.unlabeled_push_weight = unlabeled_push_weight
         self.ignore_label = ignore_label
-        self.bg_push = bg_push
-        self.hinge_pull = hinge_pull
+        self.zero_label_push = zero_label_push
 
     def _compute_variance_term(self, cluster_means, embeddings, target, instance_counts, ignore_zero_label):
         """
@@ -353,9 +336,8 @@ class AbstractContrastiveLoss(nn.Module):
             if n_instances == 0:
                 return 0.
 
-        if self.hinge_pull:
-            # zero out distances less than delta_var (hinge)
-            dist_to_mean = torch.clamp(dist_to_mean - self.delta_var, min=0)
+        # zero out distances less than delta_var (hinge)
+        dist_to_mean = torch.clamp(dist_to_mean - self.delta_var, min=0)
 
         dist_to_mean = dist_to_mean ** 2
         # normalize the variance by instance sizes and number of instances and sum it up
@@ -363,6 +345,14 @@ class AbstractContrastiveLoss(nn.Module):
         return variance_term
 
     def _compute_background_push(self, cluster_means, embeddings, target):
+        """
+        Computes the background push term, i.e. the force that pushes unlabeled pixels away from the cluster centers.
+
+        Args:
+            cluster_means (torch.Tensor):  mean embedding of each instance(CxE)
+            embeddings (torch.Tensor): pixel embeddings (ExSPATIAL)
+            target (torch.Tensor): target segmentation of shape SPATIAL
+        """
         assert target.dim() in (2, 3)
         n_instances = cluster_means.shape[0]
 
@@ -408,10 +398,7 @@ class AbstractContrastiveLoss(nn.Module):
 
         # expand cluster_means tensor in order to compute the pair-wise distance between cluster means
         # CxE -> CxCxE
-        cluster_means = cluster_means.unsqueeze(0)
-        shape = list(cluster_means.size())
-        shape[0] = C
-
+        shape = (C,) + cluster_means.size()
         # cm_matrix1 is CxCxE
         cm_matrix1 = cluster_means.expand(shape)
         # transpose the cluster_means matrix in order to compute pair-wise distances
@@ -464,7 +451,8 @@ class AbstractContrastiveLoss(nn.Module):
 
     def instance_based_loss(self, embeddings, cluster_means, target):
         """
-        Computes auxiliary loss based on embeddings and a given list of target instances together with their mean embeddings
+        Computes auxiliary instance loss. This loss is based on the differentiable instance selection trick defined
+        in our SPOCO paper.
 
         Args:
             embeddings (torch.tensor): pixel embeddings (ExSPATIAL)
@@ -475,16 +463,14 @@ class AbstractContrastiveLoss(nn.Module):
 
     def forward(self, input_, target):
         """
+        Computes the loss.
+
         Args:
-             input_ (torch.tensor): embeddings predicted by the network (NxExDxHxW) (E - embedding dims)
-                                    expects float32 tensor
-             target (torch.tensor): ground truth instance segmentation (NxDxHxW)
-                                    expects int64 tensor
-                                    if self.ignore_zero_label is True then expects target of shape Nx2xDxHxW where
-                                    relabeled version is in target[:,0,...] and the original labeling is in target[:,1,...]
+             embeddings_batch (torch.tensor): embeddings predicted by the network (NxExSpatial)
+             target_batch (torch.tensor): ground truth instance segmentation (NxSpatial)
 
         Returns:
-            Combined loss defined as: alpha * variance_term + beta * distance_term + gamma * regularization_term
+            Combined loss defined as: alpha * variance_term + beta * distance_term + gamma * regularization_term + instance_loss + unlabeled_push
         """
 
         n_batches = input_.shape[0]
@@ -496,7 +482,7 @@ class AbstractContrastiveLoss(nn.Module):
             # so we just need to ignore 0-label in the pull and push forces
             ignore_zero_label, single_target = self._should_ignore(single_target)
             contains_bg = 0 in single_target
-            if self.bg_push and contains_bg:
+            if self.zero_label_push and contains_bg:
                 ignore_zero_label = True
 
             instance_ids, instance_counts = torch.unique(single_target, return_counts=True)
@@ -514,7 +500,7 @@ class AbstractContrastiveLoss(nn.Module):
             # compute background push force, i.e. push force between the mean cluster embeddings and embeddings of background pixels
             # compute only ignore_zero_label is True, i.e. a given patch contains background label
             unlabeled_push = 0.
-            if self.bg_push and contains_bg:
+            if self.zero_label_push and contains_bg:
                 unlabeled_push = self._compute_background_push(cluster_means, single_input, single_target)
 
             # compute the instance-based loss
@@ -555,12 +541,19 @@ class AbstractContrastiveLoss(nn.Module):
 
 
 class ContrastiveLoss(AbstractContrastiveLoss):
+    """
+    Contrastive loss as defined in https://arxiv.org/pdf/1708.02551.pdf
+    'Semantic Instance Segmentation with a Discriminative Loss Function'
+    """
+
     def __init__(self, delta_var, delta_dist, norm='fro', alpha=1., beta=1., gamma=0.001, ignore_label=None,
-                 bg_push=False, hinge_pull=True, **kwargs):
+                 zero_label_push=False, **kwargs):
         super(ContrastiveLoss, self).__init__(delta_var, delta_dist, norm=norm,
-                                              alpha=alpha, beta=beta, gamma=gamma, instance_term_weight=0.,
+                                              alpha=alpha, beta=beta, gamma=gamma,
+                                              instance_term_weight=0.,
                                               unlabeled_push_weight=0.,
-                                              ignore_label=ignore_label, bg_push=bg_push, hinge_pull=hinge_pull)
+                                              ignore_label=ignore_label,
+                                              zero_label_push=zero_label_push)
 
     def instance_based_loss(self, embeddings, cluster_means, target):
         # no auxiliary loss in the standard ContrastiveLoss
@@ -607,14 +600,32 @@ class AffinitySideLoss(nn.Module):
 
 
 class SpocoContrastiveLoss(AbstractContrastiveLoss):
+    """
+    Fully supervised SPOCO loss, i.e. contrastive loss with an auxiliary instance-based loss.
+
+    Args:
+        delta_var (float): variance margin
+        delta_dist (float): distance margin
+        instance_loss (str): type of auxiliary instance loss, either 'dice' or 'bce'
+        kernel_threshold (float): threshold for the kernel function
+        norm (str): metric used to compute the norm
+        alpha (float): weight of the variance term
+        beta (float): weight of the distance term
+        gamma (float): weight of the regularization term
+        instance_term_weight (float): weight of the auxiliary instance loss
+        unlabeled_push_weight (float): weight of the unlabeled push force, 0 by default since it's fully supervised
+        zero_label_push (bool): whether to compute the unlabeled push force
+        aux_loss_ignore_zero (bool): whether to ignore the 0-label in the auxiliary instance loss
+    """
+
     def __init__(self, delta_var, delta_dist, instance_loss, kernel_threshold,
                  norm='fro', alpha=1., beta=1., gamma=0.001, instance_term_weight=1., unlabeled_push_weight=1.,
-                 ignore_label=None, bg_push=False, hinge_pull=True, aux_loss_ignore_zero=True, **kwargs):
+                 ignore_label=None, zero_label_push=False, aux_loss_ignore_zero=True, **kwargs):
 
         super().__init__(delta_var, delta_dist, norm=norm,
                          alpha=alpha, beta=beta, gamma=gamma, instance_term_weight=instance_term_weight,
                          unlabeled_push_weight=unlabeled_push_weight,
-                         ignore_label=ignore_label, bg_push=bg_push, hinge_pull=hinge_pull)
+                         ignore_label=ignore_label, zero_label_push=zero_label_push)
 
         self.aux_loss_ignore_zero = aux_loss_ignore_zero
         # ignore instance corresponding to 0-label
@@ -632,7 +643,7 @@ class SpocoContrastiveLoss(AbstractContrastiveLoss):
                 n_samples=kwargs.get('n_samples', 9)
             )
         # init dist_to_mask function which maps per-instance distance map to the instance probability map
-        self.dist_to_mask = self.Gaussian(delta_var=delta_var, pmaps_threshold=kernel_threshold)
+        self.dist_to_mask = GaussianKernel(delta_var=delta_var, pmaps_threshold=kernel_threshold)
 
     def create_instance_pmaps_and_masks(self, embeddings, anchors, target):
         """
@@ -692,30 +703,45 @@ class SpocoContrastiveLoss(AbstractContrastiveLoss):
             # compute instance-based loss
             if instance_masks is None:
                 return 0.
-            return self.instance_loss(instance_pmaps, instance_masks).mean()
-
-    # kernel function used to convert the distance map (i.e. `||embeddings - anchor_embedding||`) into an instance mask
-    class Gaussian(nn.Module):
-        def __init__(self, delta_var, pmaps_threshold):
-            super().__init__()
-            self.delta_var = delta_var
-            # dist_var^2 = -2*sigma*ln(pmaps_threshold)
-            self.two_sigma = delta_var * delta_var / (-math.log(pmaps_threshold))
-
-        def forward(self, dist_map):
-            return torch.exp(- dist_map * dist_map / self.two_sigma)
+            return self.instance_loss(instance_pmaps, instance_masks)
 
 
 class SpocoConsistencyContrastiveLoss(SpocoContrastiveLoss):
+    """
+    SPOCO loss with consistency regularization described in our publication: https://arxiv.org/abs/2103.14572
+    Used for positive-unlabeled learning.
+
+    Args:
+        delta_var (float): pull force distance margin
+        delta_dist (float): push force distance margin
+        instance_loss (str): auxiliary instance loss type, either 'dice' or 'bce'
+        kernel_threshold (float): threshold for the kernel function
+        norm (str): metric used to compute the distance between embeddings
+        alpha (float): pull force weight
+        beta (float): push force weight
+        gamma (float): unlabeled push force weight
+        instance_term_weight (float): weight of the auxiliary instance loss
+        unlabeled_push_weight (float): weight of the unlabeled push force
+        zero_label_push (bool): whether to push 0-labeled pixels from the known clusters (should be True for positive-unlabeled setting)
+        aux_loss_ignore_zero (bool): whether to ignore the 0-label when computing the auxiliary instance-based loss
+            (has to be True for positive-unlabeled setting since instance based loss is computed only for the annotated objects)
+        consistency_weight (float): weight of the consistency regularization
+        max_anchors (int): maximum number of anchors to use for the unlabeled push force
+        volume_threshold (float): percentage of the unlabeled region that can be left uncovered by the anchors
+            (in addition to the `max_anchors`, it's an stopping criterion for the anchor selection)
+        consistency_only (bool): if True, it only computes the consistency regularization and ignores the contrastive loss
+            (used for fully self-supervised pretraining)
+    """
+
     def __init__(self, delta_var, delta_dist, instance_loss, kernel_threshold, norm='fro', alpha=1., beta=1.,
-                 gamma=0.001, instance_term_weight=1., unlabeled_push_weight=1., ignore_label=None, bg_push=True,
-                 hinge_pull=True, aux_loss_ignore_zero=True, joint_loss=False, consistency_weight=1.0, max_anchors=20,
-                 volume_threshold=0.05, consistency_only=False, **kwargs):
+                 gamma=0.001, instance_term_weight=1., unlabeled_push_weight=1., ignore_label=None,
+                 zero_label_push=True, aux_loss_ignore_zero=True, joint_loss=False, consistency_weight=1.0,
+                 max_anchors=20, volume_threshold=0.05, consistency_only=False, **kwargs):
 
         super().__init__(delta_var, delta_dist, instance_loss, kernel_threshold, norm, alpha, beta, gamma,
                          instance_term_weight,
                          unlabeled_push_weight,
-                         ignore_label, bg_push, hinge_pull, aux_loss_ignore_zero, **kwargs)
+                         ignore_label, zero_label_push, aux_loss_ignore_zero, **kwargs)
 
         self.consistency_weight = consistency_weight
         self.max_anchors = max_anchors
@@ -824,15 +850,15 @@ def create_loss(delta_var, delta_dist, alpha, beta, gamma, unlabeled_push_weight
     assert delta_dist > 0
 
     if spoco:
-        bg_push = unlabeled_push_weight > 0
-        print('Unlabeled push: ', bg_push)
+        zero_label_push = unlabeled_push_weight > 0
+        print('Unlabeled push: ', zero_label_push)
         return SpocoConsistencyContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,
                                                alpha=alpha, beta=beta, gamma=gamma,
                                                instance_loss=instance_loss, kernel_threshold=kernel_threshold,
                                                unlabeled_push_weight=unlabeled_push_weight,
                                                instance_term_weight=instance_term_weight,
                                                consistency_term_weight=consistency_weight,
-                                               bg_push=bg_push)
+                                               zero_label_push=zero_label_push)
     else:
         if instance_term_weight > 0:
             return SpocoContrastiveLoss(delta_var=delta_var, delta_dist=delta_dist,

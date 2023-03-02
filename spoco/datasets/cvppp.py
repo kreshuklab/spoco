@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from PIL import Image
 from PIL import ImageFile
+from torchvision.transforms import InterpolationMode
 
 from spoco.transforms import RgbToLabel, Relabel, GaussianBlur, ImgNormalize, LabelToTensor
 
@@ -130,7 +131,7 @@ class CVPPP2017Dataset:
 
         self.train_label_transform = transforms.Compose(
             [
-                transforms.RandomResizedCrop(448, scale=(0.7, 1.), interpolation=0),
+                transforms.RandomResizedCrop(448, scale=(0.7, 1.), interpolation=InterpolationMode.NEAREST),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
                 RgbToLabel(),
@@ -141,7 +142,7 @@ class CVPPP2017Dataset:
 
         self.val_label_transform = transforms.Compose(
             [
-                transforms.Resize(size=(448, 448), interpolation=Image.NEAREST),
+                transforms.Resize(size=(448, 448), interpolation=InterpolationMode.NEAREST),
                 RgbToLabel(),
                 Relabel(run_cc=False),
                 LabelToTensor(False),

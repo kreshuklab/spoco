@@ -13,6 +13,16 @@ SUPPORTED_DATASETS = ['cvppp', 'cityscapes', 'ovules', 'mitoem', 'stem']
 
 
 class GaussianKernel(nn.Module):
+    """
+    A kernel function used to convert the distance map (i.e. `||embeddings - anchor_embedding||`)
+    into an instance probability map. It can be interpreted as a probability that an `anchor_embedding` belongs
+    to a given region of the image. The kernel is a Gaussian function with a fixed variance.
+
+    Args
+        delta_var (float): pull force distance margin
+        pmaps_threshold (float): kernel value for embeddings delta_var away from the anchor
+    """
+
     def __init__(self, delta_var, pmaps_threshold):
         super().__init__()
         self.delta_var = delta_var
@@ -87,24 +97,6 @@ def shift_tensor(tensor, offset):
     assert shifted.shape == tensor.shape
 
     return shifted
-
-
-def convert_to_numpy(*inputs):
-    """
-    Coverts input tensors to numpy ndarrays
-
-    Args:
-        inputs (iteable of torch.Tensor): torch tensor
-
-    Returns:
-        tuple of ndarrays
-    """
-
-    def _to_numpy(i):
-        assert isinstance(i, torch.Tensor), "Expected input to be torch.Tensor"
-        return i.detach().cpu().numpy()
-
-    return (_to_numpy(i) for i in inputs)
 
 
 class RunningAverage:
