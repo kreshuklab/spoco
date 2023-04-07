@@ -1,11 +1,35 @@
 import os
+from concurrent import futures
 
 import h5py
 import numpy as np
 import torch
 from PIL import Image
+from tqdm import tqdm
 
 from spoco.utils import pca_project
+
+
+def save_batch(output_dir, emb, img, path):
+    for single_img, single_emb, single_path in zip(img, emb, path):
+        save_predictions(output_dir, single_emb, single_img, single_path)
+
+
+def save_predictions(output_dir, emb, img, path):
+    # predictions to save to h5 file
+    out_file = os.path.splitext(path)[0] + '_predictions.h5'
+    pred_filename = os.path.basename(out_file)
+    out_file = os.path.join(output_dir, pred_filename)
+
+    with h5py.File(out_file, 'w') as f:
+        # print(f'Saving output to {out_file}')
+        f.create_dataset('raw', data=img, compression='gzip')
+        f.create_dataset(f'embeddings', data=emb, compression='gzip')
+
+        # save PNG with PCA projected embeddings
+        emb_np = np.squeeze(emb)
+        rgb_img = pca_project(emb_np)
+        Image.fromarray(np.rollaxis(rgb_img, 0, 3)).save(os.path.splitext(out_file)[0] + '.png')
 
 
 class EmbeddingsPredictor:
@@ -19,40 +43,33 @@ class EmbeddingsPredictor:
         # set the model in evaluation mode explicitly
         self.model.eval()
 
+        # initial process pool for saving results to disk
+        executor = futures.ProcessPoolExecutor(max_workers=32)
+
         # run predictions on the entire test_set
         with torch.no_grad():
-            for t in self.test_loader:
+            for t in tqdm(self.test_loader):
                 if self.spoco:
-                    img1, img2, path = t
+                    img, img2, path = t
                     # send batch to device
-                    img1, img2 = img1.cuda(), img2.cuda()
+                    img, img2 = img.cuda(), img2.cuda()
                     # forward pass
-                    emb1, emb2 = self.model(img1, img2)
-                    # iterate over the batch
-                    for single_img, single_emb1, single_emb2, single_path in zip(img1, emb1, emb2, path):
-                        self.process_single([single_emb1, single_emb2], single_img, single_path)
+                    emb, _ = self.model(img, img2)
                 else:
                     img, path = t
                     # send batch to device
                     img = img.cuda()
                     # forward pass
                     emb = self.model(img)
-                    # iterate over the batch
-                    for single_img, single_emb, single_path in zip(img, emb, path):
-                        self.process_single([single_emb], single_img, single_path)
 
-    def process_single(self, emb_arr, img, path):
-        # predictions to save to h5 file
-        out_file = os.path.splitext(path)[0] + '_predictions.h5'
-        out_file = os.path.join(self.output_dir, os.path.split(out_file)[1])
-        for i, se in enumerate(emb_arr):
-            # save PNG with PCA projected embeddings
-            embeddings_numpy = np.squeeze(se.cpu().numpy())
-            rgb_img = pca_project(embeddings_numpy)
-            Image.fromarray(np.rollaxis(rgb_img, 0, 3)).save(os.path.splitext(out_file)[0] + f'_{i + 1}.png')
+                # save predictions to disk
+                executor.submit(
+                    save_batch,
+                    self.output_dir,
+                    emb.cpu().numpy(),
+                    img.cpu().numpy(),
+                    path
+                )
 
-        with h5py.File(out_file, 'w') as f:
-            print(f'Saving output to {out_file}')
-            f.create_dataset('raw', data=img.cpu().numpy(), compression='gzip')
-            for i, emb in enumerate(emb_arr):
-                f.create_dataset(f'embeddings{i + 1}', data=emb.cpu().numpy(), compression='gzip')
+        print('Waiting for all predictions to be saved to disk...')
+        executor.shutdown(wait=True)

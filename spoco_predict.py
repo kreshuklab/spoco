@@ -59,6 +59,7 @@ def main():
 
     # crete predictor
     predictor = EmbeddingsPredictor(model, test_loader, output_dir, args.spoco)
+    print(f'Running inference on {len(test_loader)} batches')
     # run inference
     predictor.predict()
 
