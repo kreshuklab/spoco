@@ -54,7 +54,7 @@ def create_test_loader(args):
     else:
         raise RuntimeError(f'Unsupported dataset {args.ds_name}')
 
-    return DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
+    return DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True,
                       collate_fn=default_prediction_collate)
 
 

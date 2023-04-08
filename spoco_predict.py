@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     if not torch.cuda.is_available():
-        raise RuntimeError('Only GPU training is supported')
+        raise RuntimeError('Only GPU mode is supported')
 
     # load model from checkpoint
     model = create_model(args)

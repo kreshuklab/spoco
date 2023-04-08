@@ -50,15 +50,15 @@ class EmbeddingsPredictor:
         with torch.no_grad():
             for t in tqdm(self.test_loader):
                 if self.spoco:
-                    img, img2, path = t
-                    # send batch to device
-                    img, img2 = img.cuda(), img2.cuda()
+                    img, _, path = t
+                    # move to gpu
+                    img = img.cuda(non_blocking=True)
                     # forward pass
-                    emb, _ = self.model(img, img2)
+                    emb, _ = self.model(img, img)
                 else:
                     img, path = t
-                    # send batch to device
-                    img = img.cuda()
+                    # move to gpu
+                    img = img.cuda(non_blocking=True)
                     # forward pass
                     emb = self.model(img)
 
