@@ -187,3 +187,7 @@ python cluster_predictions.py \
 ```
 Where `SEM_PREDICTION_DIR` is the directory containing the semantic segmentation predictions for your validation images.
 We used pre-trained DeepLabv3 model from [here](https://github.com/VainF/DeepLabV3Plus-Pytorch).
+
+
+## Training and inference on MitoEM dataset
+TODO: add instructions

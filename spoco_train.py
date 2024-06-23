@@ -17,12 +17,15 @@ parser.add_argument('--manual-seed', type=int, default=None, help="RNG seed for 
 parser.add_argument('--ds-name', type=str, default='cvppp', choices=SUPPORTED_DATASETS,
                     help=f'Name of the dataset from: {SUPPORTED_DATASETS}')
 parser.add_argument('--ds-path', type=str, required=True, help='Path to the dataset root directory')
-parser.add_argument('--things-class', type=str, help='Cityscapes instance class. If None, train with all things classes',
+parser.add_argument('--things-class', type=str,
+                    help='Cityscapes instance class. If None, train with all things classes',
                     default=None)
 parser.add_argument('--instance-ratio', type=float, default=None,
                     help='ratio of ground truth instances that should be taken for training')
 parser.add_argument('--batch-size', type=int, default=4)
 parser.add_argument('--num-workers', type=int, default=4)
+parser.add_argument('--patch-shape', type=int, nargs="+", help="Patch shape for training", default=[1, 512, 512])
+parser.add_argument('--stride-shape', type=int, nargs="+", help="Stride shape for training", default=[1, 512, 512])
 
 # model config
 parser.add_argument('--model-name', type=str, default="UNet2D", help="UNet2D or UNet3D")
@@ -59,7 +62,8 @@ parser.add_argument('--cos', action='store_true', default=False, help="Use cosin
 
 # trainer config
 parser.add_argument('--spoco', action='store_true', default=False, help="Indicate SPOCO training with consistency loss")
-parser.add_argument('--save-all-checkpoints', action='store_true', default=False, help="Save checkpoint after every epoch")
+parser.add_argument('--save-all-checkpoints', action='store_true', default=False,
+                    help="Save checkpoint after every epoch")
 parser.add_argument('--checkpoint-dir', type=str, required=True, help="Model and tensorboard logs directory")
 parser.add_argument('--log-after-iters', type=int, required=True,
                     help="Number of iterations between tensorboard logging")

@@ -6,6 +6,7 @@ import torchvision.transforms.functional as F
 from PIL import ImageFilter
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
 from skimage import measure
+from skimage.filters import gaussian
 
 
 class RandomFlip:
@@ -264,7 +265,7 @@ class Standardize:
     Apply Z-score normalization to a given input tensor, i.e. re-scaling the values to be 0-mean and 1-std.
     """
 
-    def __init__(self, eps=1e-10, mean=None, std=None, channelwise=False, **kwargs):
+    def __init__(self, mean=None, std=None, eps=1e-10, channelwise=False, **kwargs):
         if mean is not None or std is not None:
             assert mean is not None and std is not None
         self.mean = mean
@@ -456,4 +457,18 @@ class GaussianBlur:
     def __call__(self, x):
         sigma = random.uniform(self.sigma[0], self.sigma[1])
         x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x
+
+
+class GaussianBlurNp:
+    """Applies multi-dimensional gaussian filter to the input numpy array."""
+    def __init__(self, sigma=[1, 50], execution_probability=1.0, **kwargs):
+        self.sigma = sigma
+        self.execution_probability = execution_probability
+
+    def __call__(self, x):
+        if random.random() < self.execution_probability:
+            sigma = random.uniform(self.sigma[0], self.sigma[1])
+            x = gaussian(x, sigma=sigma)
+            return x
         return x
