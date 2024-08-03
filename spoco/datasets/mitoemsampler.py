@@ -6,9 +6,20 @@ import numpy as np
 
 
 def mitoem_sample_instances(label, instance_ratio, random_state):
+    """
+    Sample a fraction of ground truth objects from the label dataset.
+
+    Args:
+        label: np.array, label dataset
+        instance_ratio: np.array, fraction of ground truth objects to sample
+        random_state: instance of np.random.RandomState
+
+    Returns:
+        np.array, sampled label dataset
+    """
     label_img = np.copy(label)
     unique_ids = np.unique(label)[1:]
-    rs.shuffle(unique_ids)
+    random_state.shuffle(unique_ids)
     # pick instance_ratio objects
     num_objects = round(instance_ratio * len(unique_ids))
     assert num_objects > 0, 'No objects to sample'
@@ -46,5 +57,8 @@ if __name__ == '__main__':
 
             label_sampled = mitoem_sample_instances(label, ir, rs)
 
+            dataset_name = f'label_{instance_ratio}'
+            if dataset_name in f:
+                del f[dataset_name]
             # save the sampled label dataset
-            f.create_dataset(f'label_{instance_ratio}', data=label_sampled, compression='gzip')
+            f.create_dataset(dataset_name, data=label_sampled, compression='gzip')

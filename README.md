@@ -249,10 +249,14 @@ In order to train with 1% of randomly selected instances, run:
 ```bash
 python spoco_train.py \
     --spoco \
-    --ds-name mitoem --ds-path MITOEM_ROOT_DIR \
+    --ds-name mitoem \ 
+    --ds-path MITOEM_ROOT_DIR \
+    --patch-shape 512 512 \
+    --stride-shape 512 512 \
     --instance-ratio 0.01 \
     --batch-size 16  \
     --model-name UNet2D \
+    --model-in-channels 1 \
     --model-feature-maps 16 32 64 128 256 512 \ 
     --learning-rate 0.0002 \
     --weight-decay 0.00001 \
@@ -264,7 +268,8 @@ python spoco_train.py \
     --loss-consistency-weight 1.0 \
     --kernel-threshold 0.5 \
     --checkpoint-dir CHECKPOINT_DIR \ 
-    --log-after-iters 256  --max-num-iterations 100000 
+    --log-after-iters 500 \  
+    --max-num-iterations 100000 
 ```
 
 ### Prediction on MitoEM

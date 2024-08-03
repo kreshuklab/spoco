@@ -61,6 +61,7 @@ parser.add_argument('--schedule', type=float, nargs="+", help="Multistep LR sche
 parser.add_argument('--cos', action='store_true', default=False, help="Use cosine learning rate scheduler")
 
 # trainer config
+parser.add_argument('--debug', action='store_true', help='Use single GPU instead of DDP', default=False)
 parser.add_argument('--spoco', action='store_true', default=False, help="Indicate SPOCO training with consistency loss")
 parser.add_argument('--save-all-checkpoints', action='store_true', default=False,
                     help="Save checkpoint after every epoch")
@@ -127,8 +128,12 @@ def main():
         torch.backends.cudnn.deterministic = True
         print('Using CuDNN deterministic setting. This may slow down the training!')
 
-    nprocs = torch.cuda.device_count()
-    mp.spawn(train, args=(args,), nprocs=nprocs)
+    if args.debug:
+        # debug on a single GPU
+        train(0, args)
+    else:
+        nprocs = torch.cuda.device_count()
+        mp.spawn(train, args=(args,), nprocs=nprocs)
 
 
 if __name__ == '__main__':

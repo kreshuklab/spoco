@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torchvision.transforms.functional as F
 from PIL import ImageFilter
+from PIL import Image
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
 from skimage import measure
 from skimage.filters import gaussian
@@ -17,9 +18,7 @@ class RandomFlip:
     otherwise the models won't converge.
     """
 
-    def __init__(self, random_state, axis_prob=0.5, channelwise=False, **kwargs):
-        assert random_state is not None, 'RandomState cannot be None'
-        self.random_state = random_state
+    def __init__(self, axis_prob=0.5, channelwise=False, **kwargs):
         self.axis_prob = axis_prob
         self.channelwise = channelwise
 
@@ -31,7 +30,7 @@ class RandomFlip:
             axes = range(m.ndim)
 
         for axis in axes:
-            if self.random_state.uniform() > self.axis_prob:
+            if random.random() > self.axis_prob:
                 if self.channelwise:
                     channels = [np.flip(m[c], axis) for c in range(m.shape[0])]
                     m = np.stack(channels, axis=0)
@@ -288,7 +287,8 @@ class Standardize:
                 mean = np.mean(m)
                 std = np.std(m)
 
-        return (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
+        result = (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
+        return result.astype(np.float32)
 
 
 class PercentileNormalizer:
@@ -462,7 +462,8 @@ class GaussianBlur:
 
 class GaussianBlurNp:
     """Applies multi-dimensional gaussian filter to the input numpy array."""
-    def __init__(self, sigma=[1, 50], execution_probability=1.0, **kwargs):
+
+    def __init__(self, sigma=[0.5, 2.0], execution_probability=1.0, **kwargs):
         self.sigma = sigma
         self.execution_probability = execution_probability
 
