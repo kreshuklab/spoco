@@ -6,7 +6,6 @@ channels:
   - conda-forge
 
 dependencies:
-  - python 3.8
   - tqdm
   - pytorch
   - torchvision
@@ -17,4 +16,3 @@ dependencies:
   - scikit-learn
   - pyyaml
   - hdbscan
-  - pytest

@@ -4,8 +4,10 @@ import numpy as np
 import torch
 import torchvision.transforms.functional as F
 from PIL import ImageFilter
+from PIL import Image
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
 from skimage import measure
+from skimage.filters import gaussian
 
 
 class RandomFlip:
@@ -16,9 +18,7 @@ class RandomFlip:
     otherwise the models won't converge.
     """
 
-    def __init__(self, random_state, axis_prob=0.5, channelwise=False, **kwargs):
-        assert random_state is not None, 'RandomState cannot be None'
-        self.random_state = random_state
+    def __init__(self, axis_prob=0.5, channelwise=False, **kwargs):
         self.axis_prob = axis_prob
         self.channelwise = channelwise
 
@@ -30,7 +30,7 @@ class RandomFlip:
             axes = range(m.ndim)
 
         for axis in axes:
-            if self.random_state.uniform() > self.axis_prob:
+            if random.random() > self.axis_prob:
                 if self.channelwise:
                     channels = [np.flip(m[c], axis) for c in range(m.shape[0])]
                     m = np.stack(channels, axis=0)
@@ -264,7 +264,7 @@ class Standardize:
     Apply Z-score normalization to a given input tensor, i.e. re-scaling the values to be 0-mean and 1-std.
     """
 
-    def __init__(self, eps=1e-10, mean=None, std=None, channelwise=False, **kwargs):
+    def __init__(self, mean=None, std=None, eps=1e-10, channelwise=False, **kwargs):
         if mean is not None or std is not None:
             assert mean is not None and std is not None
         self.mean = mean
@@ -287,7 +287,8 @@ class Standardize:
                 mean = np.mean(m)
                 std = np.std(m)
 
-        return (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
+        result = (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
+        return result.astype(np.float32)
 
 
 class PercentileNormalizer:
@@ -456,4 +457,19 @@ class GaussianBlur:
     def __call__(self, x):
         sigma = random.uniform(self.sigma[0], self.sigma[1])
         x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x
+
+
+class GaussianBlurNp:
+    """Applies multi-dimensional gaussian filter to the input numpy array."""
+
+    def __init__(self, sigma=[0.5, 2.0], execution_probability=1.0, **kwargs):
+        self.sigma = sigma
+        self.execution_probability = execution_probability
+
+    def __call__(self, x):
+        if random.random() < self.execution_probability:
+            sigma = random.uniform(self.sigma[0], self.sigma[1])
+            x = gaussian(x, sigma=sigma)
+            return x
         return x
